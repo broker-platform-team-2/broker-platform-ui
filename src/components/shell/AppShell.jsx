@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
 import { useAuth } from '../../context/AuthContext';
@@ -137,12 +137,13 @@ const TopBar = ({ title, subtitle, balance }) => {
           width: 36, height: 36, borderRadius: 10, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}><NavIcon name="bell"/></button>
-        <div title={user?.username} style={{
+        <Link to="/profile" title={user?.username || 'Profile'} style={{
           width: 36, height: 36, borderRadius: 18,
           background: `linear-gradient(135deg, ${D.sage}, ${D.teal})`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 13, color: D.plum,
-        }}>{initials}</div>
+          textDecoration: 'none',
+        }}>{initials}</Link>
       </div>
     </header>
   );
