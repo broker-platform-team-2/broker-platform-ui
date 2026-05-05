@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, Sparkline, AreaChart, genSeries } from '../components/shared/dark-ui';
-import { STOCKS, findStock } from '../data/mockMarket';
+import { findStock } from '../data/mockMarket';
 import { getMyHoldings } from '../api/holdings';
 import { getMyTransactions } from '../api/transactions';
-import { getMyAccount, getBalance } from '../api/accounts';
+import { getMyAccounts } from '../api/accounts';
 import { useAuth } from '../context/AuthContext';
 
 const Stat = ({ label, value, tone }) => (
@@ -26,24 +26,30 @@ const STATUS_COLORS = {
   REJECTED:         { color: D.sell,  bg: D.sellBg },
 };
 
+const CURRENCY_LABEL = {
+  EUR: 'Euro',
+  RON: 'Romanian leu',
+  USD: 'US Dollar',
+  GBP: 'British Pound',
+  CHF: 'Swiss Franc',
+};
+
 export default function HomePage() {
   const { user } = useAuth();
   const [holdings, setHoldings] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [account, setAccount] = useState(null);
-  const [balance, setBalance] = useState(null);
+  const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [h, t, a, b] = await Promise.allSettled([
-          getMyHoldings(), getMyTransactions(), getMyAccount(), getBalance(),
+        const [h, t, a] = await Promise.allSettled([
+          getMyHoldings(), getMyTransactions(), getMyAccounts(),
         ]);
         if (h.status === 'fulfilled') setHoldings(h.value || []);
         if (t.status === 'fulfilled') setTransactions((t.value || []).slice(0, 6));
-        if (a.status === 'fulfilled') setAccount(a.value);
-        if (b.status === 'fulfilled') setBalance(b.value);
+        if (a.status === 'fulfilled') setAccounts(a.value || []);
       } finally {
         setLoading(false);
       }
@@ -76,13 +82,22 @@ export default function HomePage() {
     [portfolio.totalValue]
   );
 
-  const eurAvailable = balance?.available ?? account?.balance ?? 0;
-  const eurFrozen = balance?.frozen ?? account?.frozenBalance ?? 0;
+  // For the "Cash" stat in the profile card, show the EUR account specifically
+  // (it's a small number, can't fit multi-currency). Primary = EUR if it exists.
+  const primary = accounts.find(a => a.currency === 'EUR') || accounts[0];
+  const primaryAvailable = Number(primary?.balance ?? 0);
+  const primaryCurrency = primary?.currency || 'EUR';
+
+  // Multi-currency balances for the AppShell header
+  const balances = accounts.map(a => ({
+    currency: a.currency,
+    available: Number(a.balance) || 0,
+  }));
 
   return (
     <AppShell title="Home"
       subtitle={loading ? 'Loading…' : `Welcome back${user?.username ? `, @${user.username}` : ''}`}
-      balance={eurAvailable}>
+      balances={balances}>
 
       {/* Hero row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 18, marginBottom: 18 }}>
@@ -124,31 +139,55 @@ export default function HomePage() {
         </Card>
 
         <Card padding={22}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-            <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>Account</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+            <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
+              {accounts.length > 1 ? 'Accounts' : 'Account'}
+            </div>
             <button style={{ background: 'none', border: 'none', color: D.sage, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT_BODY }}>+ Deposit</button>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 38, height: 38, borderRadius: 10, background: D.sageBg,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 13, color: D.sage,
-              }}>{account?.currency || 'EUR'}</div>
-              <div>
-                <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14, color: D.ink }}>Primary · Cash</div>
-                {eurFrozen > 0 && (
-                  <div style={{ fontSize: 11.5, color: D.warn, marginTop: 2 }}>
-                    <Money value={eurFrozen} currency={account?.currency || 'EUR'}/> frozen in open orders
+
+          {accounts.length === 0 && (
+            <div style={{ padding: '24px 0', color: D.ink50, fontSize: 13, textAlign: 'center' }}>
+              {loading ? 'Loading…' : 'No accounts yet.'}
+            </div>
+          )}
+
+          {accounts.map((a, i) => {
+            const available = Number(a.balance) || 0;
+            const frozen = Number(a.frozenBalance) || 0;
+            const isPrimary = i === 0;
+            return (
+              <div key={a.accountId} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 0',
+                borderTop: i === 0 ? 'none' : `1px solid ${D.hairline}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{
+                    width: 38, height: 38, borderRadius: 10,
+                    background: isPrimary ? D.sageBg : D.surface3,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 13,
+                    color: isPrimary ? D.sage : D.ink70,
+                  }}>{a.currency}</div>
+                  <div>
+                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14, color: D.ink }}>
+                      {isPrimary ? 'Primary' : 'Secondary'} · {CURRENCY_LABEL[a.currency] || a.currency}
+                    </div>
+                    {frozen > 0 && (
+                      <div style={{ fontSize: 11.5, color: D.warn, marginTop: 2 }}>
+                        <Money value={frozen} currency={a.currency}/> frozen in open orders
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <Money value={available} currency={a.currency}/>
+                  <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>available</div>
+                </div>
               </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <Money value={eurAvailable} currency={account?.currency || 'EUR'}/>
-              <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>available</div>
-            </div>
-          </div>
+            );
+          })}
         </Card>
       </div>
 
@@ -239,20 +278,11 @@ export default function HomePage() {
               <Stat label="Trades" value={transactions.length}/>
               <Stat label="Realised P&L" value={`€${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
               <Stat label="Holdings" value={portfolio.rows.length}/>
-              <Stat label="Cash" value={`€${eurAvailable.toFixed(0)}`}/>
-            </div>
-          </Card>
-
-          <Card padding={22} style={{ background: `linear-gradient(140deg, ${D.plum} 0%, ${D.plumDeep} 100%)`, borderColor: 'transparent' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 4, background: D.spring, boxShadow: `0 0 10px ${D.spring}` }}/>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 600 }}>Your Wakibi impact</span>
-            </div>
-            <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 28, color: '#fff', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-              €{(portfolio.totalValue * 0.0005).toFixed(2)}
-            </div>
-            <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.78)', marginTop: 6, lineHeight: 1.5 }}>
-              estimated platform fees this year supporting <strong style={{ color: D.spring }}>microloans</strong> across Kenya, Peru and Vietnam.
+              <Stat label={`Cash · ${primaryCurrency}`} value={
+                primaryCurrency === 'EUR' ? `€${primaryAvailable.toFixed(0)}`
+                : primaryCurrency === 'RON' ? `lei ${primaryAvailable.toFixed(0)}`
+                : `${primaryAvailable.toFixed(0)} ${primaryCurrency}`
+              }/>
             </div>
           </Card>
         </div>
