@@ -3,7 +3,6 @@ import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill } from '../components/shared/dark-ui';
 import { STOCKS } from '../data/mockMarket';
-import { ACCOUNTS } from '../data/mockAccounts';
 import { ORDERS, STATUS_TONE } from '../data/mockOrders';
 
 const KPIcard = ({ label, value, sub, tone }) => (
@@ -127,8 +126,6 @@ export default function OrdersPage() {
   const [selected, setSelected] = useState('ord-3501');
   const [side, setSide] = useState('all');
 
-  const eurBalance = ACCOUNTS.find(a => a.currency === 'EUR').balance;
-
   const filtered = ORDERS.filter(o => {
     if (tab === 'open' && !['PENDING', 'PARTIAL'].includes(o.status)) return false;
     if (tab === 'closed' && ['PENDING', 'PARTIAL'].includes(o.status)) return false;
@@ -145,7 +142,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <AppShell title="Orders" subtitle="Open positions, fills & history" balance={eurBalance}>
+    <AppShell title="Orders" subtitle="Open positions, fills & history">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
         <KPIcard label="Open orders"   value={counts.open}   sub="3 partially filled" tone={D.warn}/>
         <KPIcard label="Filled today"  value="2"             sub="Total €5,983"       tone={D.sage}/>

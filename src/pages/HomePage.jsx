@@ -88,16 +88,10 @@ export default function HomePage() {
   const primaryAvailable = Number(primary?.balance ?? 0);
   const primaryCurrency = primary?.currency || 'EUR';
 
-  // Multi-currency balances for the AppShell header
-  const balances = accounts.map(a => ({
-    currency: a.currency,
-    available: Number(a.balance) || 0,
-  }));
 
   return (
     <AppShell title="Home"
-      subtitle={loading ? 'Loading…' : `Welcome back${user?.username ? `, @${user.username}` : ''}`}
-      balances={balances}>
+      subtitle={loading ? 'Loading…' : `Welcome back${user?.username ? `, @${user.username}` : ''}`}>
 
       {/* Hero row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 18, marginBottom: 18 }}>

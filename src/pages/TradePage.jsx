@@ -1,12 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, AreaChart, KPI, genSeries, seedRand } from '../components/shared/dark-ui';
 import { STOCKS } from '../data/mockMarket';
 import { placeOrder } from '../api/orders';
-import { getBalance } from '../api/accounts';
 import { getMyHoldings } from '../api/holdings';
+import { useAccount } from '../context/AccountContext';
+
+const SYMBOLS = {
+  EUR: '€',  USD: '$',   GBP: '£',   CHF: 'CHF ', JPY: '¥',
+  CAD: 'C$', AUD: 'A$',  NZD: 'NZ$', SEK: 'kr ',  NOK: 'kr ',
+  DKK: 'kr ', HKD: 'HK$', SGD: 'S$', CNY: '¥',    INR: '₹',
+  KRW: '₩',  BRL: 'R$',  MXN: 'MX$', ZAR: 'R ',  TRY: '₺',
+  PLN: 'zł ', RON: 'lei ',
+};
 
 const Label = ({ children }) => (
   <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6, fontFamily: FONT_BODY }}>{children}</div>
@@ -43,16 +51,22 @@ export default function TradePage() {
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
   const [error, setError] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef(null);
 
-  const [balance, setBalance] = useState({ available: 0, frozen: 0 });
+  const { accounts, activeId, setActiveId, activeAccount } = useAccount();
   const [holdings, setHoldings] = useState([]);
 
   useEffect(() => {
-    Promise.allSettled([getBalance(), getMyHoldings()]).then(([b, h]) => {
-      if (b.status === 'fulfilled') setBalance(b.value || { available: 0, frozen: 0 });
-      if (h.status === 'fulfilled') setHoldings(h.value || []);
-    });
+    getMyHoldings().then(h => setHoldings(h || [])).catch(() => {});
   }, [confirmation]);
+
+  // Close picker when clicking outside
+  useEffect(() => {
+    const handler = (e) => { if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const stock = STOCKS.find(s => s.ticker === ticker);
   const holding = holdings.find(h => (h.instrumentId || h.ticker) === ticker && (h.instrumentType || h.type) === 'STOCK');
@@ -62,10 +76,12 @@ export default function TradePage() {
   const total = qty * execPrice + (side === 'BUY' ? fee : -fee);
   const proceeds = qty * execPrice - fee;
 
-  const eurAvail = Number(balance.available || 0);
+  const availBalance = Number(activeAccount?.balance || 0);
+  const activeCurrency = activeAccount?.currency || 'EUR';
+  const activeSym = SYMBOLS[activeCurrency] || `${activeCurrency} `;
   const ownedQty = Number(holding?.amount || 0);
 
-  const canAfford = side === 'BUY' ? total <= eurAvail : true;
+  const canAfford = side === 'BUY' ? total <= availBalance : true;
   const canSell = side === 'SELL' ? qty <= ownedQty : true;
   const valid = qty > 0 && canAfford && canSell;
 
@@ -111,7 +127,7 @@ export default function TradePage() {
   }
 
   return (
-    <AppShell title="Trade" subtitle="Place orders on the Wakibi exchange" balance={eurAvail}>
+    <AppShell title="Trade" subtitle="Place orders on the Wakibi exchange">
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: 18 }}>
         {/* Left: market info */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -211,6 +227,84 @@ export default function TradePage() {
           </div>
 
           <div style={{ padding: '0 16px 16px' }}>
+            {/* Account selector */}
+            <Label>Funding account</Label>
+            <div ref={pickerRef} style={{ position: 'relative', marginBottom: 16 }}>
+              <button
+                onClick={() => setPickerOpen(o => !o)}
+                style={{
+                  width: '100%', textAlign: 'left', cursor: 'pointer',
+                  background: D.surface2,
+                  border: `1px solid ${pickerOpen ? D.sage : D.hairline}`,
+                  borderRadius: pickerOpen ? '9px 9px 0 0' : 9,
+                  padding: '10px 12px',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  fontFamily: FONT_BODY,
+                  transition: 'border-color 0.15s',
+                }}
+              >
+                <div style={{
+                  background: D.sageBg, borderRadius: 6, padding: '3px 8px',
+                  fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12, color: D.sage, flexShrink: 0,
+                }}>{activeCurrency}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
+                    {activeSym}{availBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>Available to trade</div>
+                </div>
+                <span style={{
+                  color: D.ink50, fontSize: 11,
+                  display: 'inline-block',
+                  transform: pickerOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.15s',
+                }}>▾</span>
+              </button>
+
+              {pickerOpen && (
+                <div style={{
+                  position: 'absolute', left: 0, right: 0, zIndex: 50,
+                  background: D.surface2,
+                  border: `1px solid ${D.sage}`,
+                  borderTop: 'none',
+                  borderRadius: '0 0 9px 9px',
+                  overflow: 'hidden',
+                }}>
+                  {accounts.map((a, i) => {
+                    const isSel = String(a.accountId) === String(activeId);
+                    const bal = Number(a.balance) || 0;
+                    const sym = SYMBOLS[a.currency] || `${a.currency} `;
+                    return (
+                      <button
+                        key={a.accountId}
+                        onClick={() => { setActiveId(a.accountId); setPickerOpen(false); }}
+                        style={{
+                          width: '100%', textAlign: 'left', cursor: 'pointer',
+                          background: isSel ? D.sageBg : 'transparent',
+                          border: 'none',
+                          borderBottom: i < accounts.length - 1 ? `1px solid ${D.hairline}` : 'none',
+                          padding: '10px 12px',
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        <div style={{
+                          background: isSel ? D.sageBg : D.surface3,
+                          borderRadius: 6, padding: '3px 8px',
+                          fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12,
+                          color: isSel ? D.sage : D.ink50, flexShrink: 0,
+                        }}>{a.currency}</div>
+                        <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
+                          {sym}{bal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        {isSel && <span style={{ color: D.sage, fontSize: 13 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <Label>Order type</Label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 16 }}>
               {['MARKET', 'LIMIT'].map(t => (
@@ -239,7 +333,7 @@ export default function TradePage() {
               {[10, 25, 50, 100, 'Max'].map(v => (
                 <button key={v} onClick={() => {
                   if (v === 'Max') {
-                    if (side === 'BUY' && execPrice > 0) setQty(Math.floor(eurAvail / execPrice));
+                    if (side === 'BUY' && execPrice > 0) setQty(Math.floor(availBalance / execPrice));
                     else if (side === 'SELL') setQty(ownedQty);
                   } else setQty(v);
                 }} style={{
@@ -289,6 +383,8 @@ export default function TradePage() {
               background: D.surface2, borderRadius: 12, padding: 14, marginTop: 4, marginBottom: 12,
               border: `1px solid ${D.hairline}`,
             }}>
+              <SummaryRow label={`${activeCurrency} available`} value={`${activeSym}${availBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
+              <div style={{ height: 1, background: D.hairline, margin: '8px 0' }}/>
               <SummaryRow label="Estimated price" value={orderType === 'MARKET' ? `€${stock.price.toFixed(2)} (mkt)` : `€${execPrice.toFixed(2)}`}/>
               <SummaryRow label="Subtotal" value={`€${(qty * execPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
               <SummaryRow label="Platform fee · 0.08%" value={`€${fee.toFixed(2)}`} hint={<span style={{ color: D.spring }}>→ microloans</span>}/>
@@ -302,7 +398,7 @@ export default function TradePage() {
 
             {!canAfford && side === 'BUY' && (
               <div style={{ background: D.sellBg, color: D.sell, padding: '10px 12px', borderRadius: 9, fontSize: 12, marginBottom: 12, border: `1px solid ${D.sell}33` }}>
-                ⚠ Insufficient funds. Available €{eurAvail.toFixed(2)}.
+                ⚠ Insufficient funds. Available {activeSym}{availBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in {activeCurrency} account.
               </div>
             )}
             {!canSell && side === 'SELL' && (

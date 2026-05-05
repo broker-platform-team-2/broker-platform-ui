@@ -1,8 +1,385 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, AreaChart } from '../components/shared/dark-ui';
-import { getMyAccounts, deposit, deduct, createAccount} from '../api/accounts';
+import { deposit, deduct, createAccount } from '../api/accounts';
+import { useAccount } from '../context/AccountContext';
+
+function FundsModal({ mode, account, onConfirm, onClose }) {
+  const isDeposit = mode === 'deposit';
+  const sym = SYMBOL[account?.currency] || `${account?.currency} `;
+  const available = Number(account?.balance) || 0;
+
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const amount = parseFloat(value);
+  const overdrawn = !isDeposit && !isNaN(amount) && amount > available;
+
+  const handleConfirm = async () => {
+    if (isNaN(amount) || amount <= 0) { setError('Enter a valid amount.'); return; }
+    if (overdrawn) { setError('Amount exceeds available balance.'); return; }
+    setError('');
+    setBusy(true);
+    try {
+      await onConfirm(amount);
+      setDone(true);
+      setTimeout(onClose, 1400);
+    } catch {
+      setError('Transaction failed. Please try again.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(26,14,22,0.80)',
+        backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 420, background: D.surface,
+          border: `1px solid ${D.hairline2}`,
+          borderRadius: 20, padding: 28,
+          fontFamily: FONT_BODY,
+          boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: 13, flexShrink: 0,
+            background: isDeposit ? D.buyBg : D.sellBg,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 20, color: isDeposit ? D.buy : D.sell,
+          }}>
+            {isDeposit ? '↓' : '↑'}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 18, color: D.ink, letterSpacing: '-0.01em' }}>
+              {isDeposit ? 'Deposit funds' : 'Withdraw funds'}
+            </div>
+            <div style={{ fontSize: 12, color: D.ink50, marginTop: 2 }}>
+              {CURRENCY_LABEL[account?.currency]} · NL98 WAKB ···· {ibanLast4(account?.accountId)}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: D.surface2, border: `1px solid ${D.hairline}`,
+              color: D.ink50, width: 32, height: 32, borderRadius: 8,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, flexShrink: 0,
+            }}
+          >✕</button>
+        </div>
+
+        {/* Available balance row (withdraw only) */}
+        {!isDeposit && (
+          <div style={{
+            background: D.surface2, borderRadius: 10, padding: '10px 14px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: 16, border: `1px solid ${D.hairline}`,
+          }}>
+            <span style={{ fontSize: 12, color: D.ink50 }}>Available balance</span>
+            <span style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
+              {sym}{available.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
+
+        {/* Amount input */}
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>Amount</div>
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            background: D.surface2,
+            border: `1px solid ${overdrawn || (error && (isNaN(amount) || amount <= 0)) ? D.sell : D.hairline2}`,
+            borderRadius: 12, padding: '0 16px',
+            transition: 'border-color 0.15s',
+          }}>
+            <span style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 20, color: D.ink50, marginRight: 4, userSelect: 'none' }}>
+              {sym}
+            </span>
+            <input
+              ref={inputRef}
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={value}
+              onChange={e => { setValue(e.target.value); setError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleConfirm(); }}
+              placeholder="0.00"
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 32, color: D.ink,
+                padding: '16px 0', fontVariantNumeric: 'tabular-nums',
+              }}
+            />
+            <span style={{ fontSize: 12, color: D.ink50, fontWeight: 700, letterSpacing: 0.5 }}>
+              {account?.currency}
+            </span>
+          </div>
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div style={{ fontSize: 12, color: D.sell, marginBottom: 12, paddingLeft: 2 }}>{error}</div>
+        )}
+
+        {/* Success banner */}
+        {done && (
+          <div style={{
+            background: D.buyBg, border: `1px solid rgba(89,191,138,0.3)`,
+            borderRadius: 10, padding: '10px 14px', marginTop: 8, marginBottom: 4,
+            display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 13, fontWeight: 600, color: D.buy,
+          }}>
+            ✓ {isDeposit ? 'Deposit' : 'Withdrawal'} successful
+          </div>
+        )}
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1, padding: '13px 0',
+              background: 'transparent', border: `1px solid ${D.hairline2}`,
+              borderRadius: 10, color: D.ink70,
+              fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >Cancel</button>
+          <button
+            onClick={handleConfirm}
+            disabled={busy || done}
+            style={{
+              flex: 2, padding: '13px 0',
+              background: isDeposit
+                ? `linear-gradient(135deg, ${D.sage} 0%, ${D.teal} 100%)`
+                : `linear-gradient(135deg, ${D.sell} 0%, #ff9b9b 100%)`,
+              border: 'none', borderRadius: 10,
+              color: isDeposit ? D.plumDeep : '#fff',
+              fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14,
+              cursor: busy || done ? 'default' : 'pointer',
+              opacity: busy ? 0.65 : 1,
+              transition: 'opacity 0.15s',
+            }}
+          >
+            {busy ? 'Processing…' : done ? 'Done' : isDeposit ? `Deposit ${account?.currency}` : `Withdraw ${account?.currency}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ALL_CURRENCIES = [
+  { code: 'EUR', name: 'Euro',              symbol: '€'   },
+  { code: 'USD', name: 'US Dollar',         symbol: '$'   },
+  { code: 'GBP', name: 'British Pound',     symbol: '£'   },
+  { code: 'CHF', name: 'Swiss Franc',       symbol: 'CHF' },
+  { code: 'JPY', name: 'Japanese Yen',      symbol: '¥'   },
+  { code: 'CAD', name: 'Canadian Dollar',   symbol: 'C$'  },
+  { code: 'AUD', name: 'Australian Dollar', symbol: 'A$'  },
+  { code: 'NZD', name: 'New Zealand Dollar',symbol: 'NZ$' },
+  { code: 'SEK', name: 'Swedish Krona',     symbol: 'kr'  },
+  { code: 'NOK', name: 'Norwegian Krone',   symbol: 'kr'  },
+  { code: 'DKK', name: 'Danish Krone',      symbol: 'kr'  },
+  { code: 'HKD', name: 'Hong Kong Dollar',  symbol: 'HK$' },
+  { code: 'SGD', name: 'Singapore Dollar',  symbol: 'S$'  },
+  { code: 'CNY', name: 'Chinese Yuan',      symbol: '¥'   },
+  { code: 'INR', name: 'Indian Rupee',      symbol: '₹'   },
+  { code: 'KRW', name: 'South Korean Won',  symbol: '₩'   },
+  { code: 'BRL', name: 'Brazilian Real',    symbol: 'R$'  },
+  { code: 'MXN', name: 'Mexican Peso',      symbol: 'MX$' },
+  { code: 'ZAR', name: 'South African Rand',symbol: 'R'   },
+  { code: 'TRY', name: 'Turkish Lira',      symbol: '₺'   },
+  { code: 'PLN', name: 'Polish Zloty',      symbol: 'zł'  },
+  { code: 'RON', name: 'Romanian Leu',      symbol: 'lei' },
+];
+
+function AddAccountModal({ existingCurrencies, onConfirm, onClose }) {
+  const [selected, setSelected] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const handleConfirm = async () => {
+    if (!selected) return;
+    setError('');
+    setBusy(true);
+    try {
+      await onConfirm(selected);
+      setDone(true);
+      setTimeout(onClose, 1400);
+    } catch {
+      setError('Could not create account. It may already exist.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(26,14,22,0.80)',
+        backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 460, background: D.surface,
+          border: `1px solid ${D.hairline2}`,
+          borderRadius: 20, padding: 28,
+          fontFamily: FONT_BODY,
+          boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: 13, flexShrink: 0,
+            background: D.sageBg,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 22, color: D.sage,
+          }}>+</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 18, color: D.ink, letterSpacing: '-0.01em' }}>
+              Add account
+            </div>
+            <div style={{ fontSize: 12, color: D.ink50, marginTop: 2 }}>
+              Select a currency to open a new wallet account
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: D.surface2, border: `1px solid ${D.hairline}`,
+              color: D.ink50, width: 32, height: 32, borderRadius: 8,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, flexShrink: 0,
+            }}
+          >✕</button>
+        </div>
+
+        {/* Currency grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20, maxHeight: 320, overflowY: 'auto', paddingRight: 2 }}>
+          {ALL_CURRENCIES.map(c => {
+            const exists = existingCurrencies.includes(c.code);
+            const isSelected = selected === c.code;
+            return (
+              <button
+                key={c.code}
+                disabled={exists}
+                onClick={() => !exists && setSelected(c.code)}
+                style={{
+                  textAlign: 'left', cursor: exists ? 'default' : 'pointer',
+                  background: isSelected ? D.sageBg : D.surface2,
+                  border: `1px solid ${isSelected ? D.sage : D.hairline}`,
+                  borderRadius: 12, padding: '14px 16px',
+                  opacity: exists ? 0.45 : 1,
+                  transition: 'border-color 0.15s, background 0.15s',
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{
+                    fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 22,
+                    color: isSelected ? D.sage : D.ink,
+                    letterSpacing: '-0.01em',
+                  }}>{c.symbol}</div>
+                  {exists
+                    ? <span style={{ fontSize: 10, fontWeight: 700, color: D.ink50, background: D.surface3, padding: '2px 7px', borderRadius: 999 }}>ADDED</span>
+                    : isSelected && <span style={{ fontSize: 10, fontWeight: 700, color: D.sage, background: D.sageBg, padding: '2px 7px', borderRadius: 999 }}>SELECTED</span>
+                  }
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? D.ink : D.ink70 }}>{c.code}</div>
+                  <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>{c.name}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{ fontSize: 12, color: D.sell, marginBottom: 12, paddingLeft: 2 }}>{error}</div>
+        )}
+
+        {/* Success banner */}
+        {done && (
+          <div style={{
+            background: D.buyBg, border: `1px solid rgba(89,191,138,0.3)`,
+            borderRadius: 10, padding: '10px 14px', marginBottom: 12,
+            display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 13, fontWeight: 600, color: D.buy,
+          }}>
+            ✓ Account created
+          </div>
+        )}
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1, padding: '13px 0',
+              background: 'transparent', border: `1px solid ${D.hairline2}`,
+              borderRadius: 10, color: D.ink70,
+              fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >Cancel</button>
+          <button
+            onClick={handleConfirm}
+            disabled={!selected || busy || done}
+            style={{
+              flex: 2, padding: '13px 0',
+              background: selected && !busy && !done
+                ? `linear-gradient(135deg, ${D.sage} 0%, ${D.teal} 100%)`
+                : D.surface3,
+              border: 'none', borderRadius: 10,
+              color: selected && !busy && !done ? D.plumDeep : D.ink50,
+              fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14,
+              cursor: !selected || busy || done ? 'default' : 'pointer',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+          >
+            {busy ? 'Creating…' : done ? 'Done' : selected ? `Open ${selected} Account` : 'Select a currency'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Movements are still mocked — transactions on the backend don't yet carry the
 // account-currency mapping. Wire to /transactions once that lands.
@@ -26,14 +403,23 @@ const TYPE_LABEL = {
 };
 
 const CURRENCY_LABEL = {
-  EUR: 'Euro',
-  RON: 'Romanian leu',
-  USD: 'US Dollar',
-  GBP: 'British Pound',
-  CHF: 'Swiss Franc',
+  EUR: 'Euro',           USD: 'US Dollar',         GBP: 'British Pound',
+  CHF: 'Swiss Franc',    JPY: 'Japanese Yen',       CAD: 'Canadian Dollar',
+  AUD: 'Australian Dollar', NZD: 'New Zealand Dollar', SEK: 'Swedish Krona',
+  NOK: 'Norwegian Krone', DKK: 'Danish Krone',      HKD: 'Hong Kong Dollar',
+  SGD: 'Singapore Dollar', CNY: 'Chinese Yuan',     INR: 'Indian Rupee',
+  KRW: 'South Korean Won', BRL: 'Brazilian Real',   MXN: 'Mexican Peso',
+  ZAR: 'South African Rand', TRY: 'Turkish Lira',   PLN: 'Polish Zloty',
+  RON: 'Romanian Leu',
 };
 
-const SYMBOL = { EUR: '€', RON: 'lei ', USD: '$', GBP: '£', CHF: 'CHF ' };
+const SYMBOL = {
+  EUR: '€',  USD: '$',   GBP: '£',   CHF: 'CHF ', JPY: '¥',
+  CAD: 'C$', AUD: 'A$',  NZD: 'NZ$', SEK: 'kr ',  NOK: 'kr ',
+  DKK: 'kr ', HKD: 'HK$', SGD: 'S$', CNY: '¥',    INR: '₹',
+  KRW: '₩',  BRL: 'R$',  MXN: 'MX$', ZAR: 'R ',  TRY: '₺',
+  PLN: 'zł ', RON: 'lei ',
+};
 
 const CASHFLOW = [3200,3100,3500,3400,4800,4700,5100,5050,5200,4900,5400,5800,6100,5950,6400,6800,7200,7050,7600,8200,8100,8900,9300,9100,9800,10500,10400,11200,11800,12400,13100,14000,14800,15200,16100,16800,17400,17900,18420];
 
@@ -43,33 +429,11 @@ function ibanLast4(accountId) {
 }
 
 export default function WalletPage() {
-  const [accounts, setAccounts] = useState([]);
-  const [activeId, setActiveId] = useState(null);
+  const { accounts, activeId, setActiveId, refreshAccounts } = useAccount();
   const [tab, setTab] = useState('all');
-  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null); // 'deposit' | 'withdraw' | 'add' | null
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const list = await getMyAccounts();
-        setAccounts(list);
-        if (list.length > 0) {
-          // Default to EUR if present, else the first (oldest) account.
-          const primary = list.find(a => a.currency === 'EUR') || list[0];
-          setActiveId(primary.accountId);
-        }
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  const balances = useMemo(
-    () => accounts.map(a => ({ currency: a.currency, available: Number(a.balance) || 0 })),
-    [accounts]
-  );
-
-  const account = accounts.find(a => a.accountId === activeId) || accounts[0];
+  const account = accounts.find(a => String(a.accountId) === String(activeId)) || accounts[0];
   const activeCurrency = account?.currency || 'EUR';
   const sym = SYMBOL[activeCurrency] || `${activeCurrency} `;
 
@@ -82,89 +446,42 @@ export default function WalletPage() {
     return true;
   });
 
-  const handleDeposit = async () => {
-    // 1. Ask for amount (you could also create a custom Model component for this)
-    const amountStr = window.prompt(`How much ${activeCurrency} would you like to deposit?`);
-    const amount = parseFloat(amountStr);
-
-    if (isNaN(amount) || amount <= 0) {
-      alert("Please enter a valid amount.");
-      return;
-    }
-
-    try {
-      setLoading(true); // Optional: show loading state
-      await deposit(activeCurrency, amount);
-
-      // 2. Refresh the account list to show the new balance
-      const updatedAccounts = await getMyAccounts();
-      setAccounts(updatedAccounts);
-
-      alert(`Successfully deposited ${SYMBOL[activeCurrency]}${amount}`);
-    } catch (error) {
-      console.error("Deposit failed:", error);
-      alert("Transaction failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  const handleDepositConfirm = async (amount) => {
+    await deposit(activeCurrency, amount);
+    await refreshAccounts();
   };
 
-  const handleWithdraw = async () => {
-    const currentBalance = Number(account?.balance) || 0;
-    const amountStr = window.prompt(`Withdraw from ${activeCurrency} (Available: ${sym}${currentBalance.toLocaleString()})`);
-    const amount = parseFloat(amountStr);
-
-    // Validation
-    if (isNaN(amount) || amount <= 0) return;
-
-    if (amount > currentBalance) {
-      alert("Insufficient funds for this withdrawal.");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      await deduct(activeCurrency, amount);
-
-      // Refresh accounts to show updated balance
-      const updatedAccounts = await getMyAccounts();
-      setAccounts(updatedAccounts);
-
-      alert(`Successfully withdrew ${sym}${amount}`);
-    } catch (error) {
-      console.error("Withdrawal failed:", error);
-      alert("Transaction failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  const handleWithdrawConfirm = async (amount) => {
+    await deduct(activeCurrency, amount);
+    await refreshAccounts();
   };
 
-  const handleAddCurrency = async () => {
-    const currency = window.prompt("Enter currency (USD, GBP, CHF):")?.toUpperCase();
-
-    if (!currency) return;
-
-    try {
-      setLoading(true);
-      await createAccount(currency);
-
-      // Refresh the account list so the new card appears immediately
-      const updated = await getMyAccounts();
-      setAccounts(updated);
-    } catch (err) {
-      console.error("Failed to create account:", err);
-      alert("Could not create account. It may already exist.");
-    } finally {
-      setLoading(false);
-    }
+  const handleAddAccountConfirm = async (currency) => {
+    await createAccount(currency);
+    await refreshAccounts();
   };
 
   return (
-    <AppShell title="Wallet" subtitle="Accounts, deposits & transfers" balances={balances}>
+    <AppShell title="Wallet" subtitle="Accounts, deposits & transfers">
+      {(modal === 'deposit' || modal === 'withdraw') && (
+        <FundsModal
+          mode={modal}
+          account={account}
+          onConfirm={modal === 'deposit' ? handleDepositConfirm : handleWithdrawConfirm}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'add' && (
+        <AddAccountModal
+          existingCurrencies={accounts.map(a => a.currency)}
+          onConfirm={handleAddAccountConfirm}
+          onClose={() => setModal(null)}
+        />
+      )}
       {/* Account cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 18 }}>
         {accounts.map((a, i) => {
-          const sel = a.accountId === activeId;
+          const sel = String(a.accountId) === String(activeId);
           const isPrimary = i === 0;
           const isEur = a.currency === 'EUR';
           const balance = Number(a.balance) || 0;
@@ -208,7 +525,7 @@ export default function WalletPage() {
           );
         })}
 
-        {!loading && accounts.length === 0 && (
+        {accounts.length === 0 && (
           <div style={{
             gridColumn: 'span 3',
             background: D.surface, border: `1px solid ${D.hairline}`,
@@ -219,7 +536,7 @@ export default function WalletPage() {
         )}
 
         <button
-            onClick={handleAddCurrency}
+            onClick={() => setModal('add')}
             style={{
           background: 'transparent', border: `1px dashed ${D.hairline2}`,
           borderRadius: 16, padding: 22, color: D.ink70, cursor: 'pointer',
@@ -227,7 +544,7 @@ export default function WalletPage() {
           fontFamily: FONT_BODY,
         }}>
           <span style={{ fontSize: 22, color: D.sage }}>+</span>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Add currency</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Add account</span>
           <span style={{ fontSize: 11, color: D.ink50 }}>USD, GBP, CHF available</span>
         </button>
       </div>
@@ -235,8 +552,8 @@ export default function WalletPage() {
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
         {[
-          { id: 'deposit',  label: 'Deposit',     icon: '↓', primary: true, action: handleDeposit },
-          { id: 'withdraw', label: 'Withdraw',    icon: '↑', action: handleWithdraw },
+          { id: 'deposit',  label: 'Deposit',  icon: '↓', primary: true, action: () => setModal('deposit') },
+          { id: 'withdraw', label: 'Withdraw', icon: '↑', action: () => setModal('withdraw') },
         ].map(a => (
             <button
                 key={a.id}

@@ -3,6 +3,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
 import { useAuth } from '../../context/AuthContext';
+import { useAccount } from '../../context/AccountContext';
 
 const NAV = [
   { id: 'home',   label: 'Home',    icon: 'home',   path: '/home' },
@@ -101,14 +102,10 @@ function formatAmount(amount, currency) {
   return `${sym}${v}`;
 }
 
-const TopBar = ({ title, subtitle, balance, balances }) => {
+const TopBar = ({ title, subtitle }) => {
   const { user } = useAuth();
+  const { activeAccount } = useAccount();
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : 'WB';
-
-  // `balances` (array of { currency, available }) takes precedence over the legacy
-  // single-number `balance` prop. Pages can pass either. Falsy / empty array hides.
-  const hasMulti = Array.isArray(balances) && balances.length > 0;
-  const showBalance = hasMulti || balance != null;
 
   return (
     <header style={{
@@ -142,23 +139,14 @@ const TopBar = ({ title, subtitle, balance, balances }) => {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        {showBalance && (
+        {activeAccount && (
           <div style={{ textAlign: 'right', borderRight: `1px solid ${D.hairline}`, paddingRight: 14 }}>
             <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.5 }}>Available</div>
             <div style={{
               fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15, color: D.ink,
               fontVariantNumeric: 'tabular-nums',
-              display: 'flex', alignItems: 'baseline', gap: 8, justifyContent: 'flex-end',
-              flexWrap: 'wrap',
             }}>
-              {hasMulti
-                ? balances.map((b, i) => (
-                    <React.Fragment key={b.currency}>
-                      {i > 0 && <span style={{ color: D.ink50, fontWeight: 400, fontSize: 13 }}>·</span>}
-                      <span>{formatAmount(b.available, b.currency)}</span>
-                    </React.Fragment>
-                  ))
-                : `€${Number(balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              {formatAmount(Number(activeAccount.balance) || 0, activeAccount.currency)}
             </div>
           </div>
         )}
@@ -179,14 +167,14 @@ const TopBar = ({ title, subtitle, balance, balances }) => {
   );
 };
 
-export const AppShell = ({ title, subtitle, balance, balances, children }) => (
+export const AppShell = ({ title, subtitle, children }) => (
   <div style={{
     display: 'flex', height: '100vh', width: '100%',
     background: D.bg, color: D.ink, fontFamily: FONT_BODY,
   }}>
     <Sidebar/>
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <TopBar title={title} subtitle={subtitle} balance={balance} balances={balances}/>
+      <TopBar title={title} subtitle={subtitle}/>
       <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
         {children}
       </div>

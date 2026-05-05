@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill } from '../components/shared/dark-ui';
-import { ACCOUNTS } from '../data/mockAccounts';
 import { useAuth } from '../context/AuthContext';
 
 const SectionTitle = ({ title, action }) => (
@@ -161,11 +160,10 @@ const SECTIONS = [
 export default function ProfilePage() {
   const { user } = useAuth();
   const [section, setSection] = useState('overview');
-  const eurBalance = ACCOUNTS.find(a => a.currency === 'EUR').balance;
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : 'WB';
 
   return (
-    <AppShell title="My Profile" subtitle="Account, security & impact" balance={eurBalance}>
+    <AppShell title="My Profile" subtitle="Account, security & impact">
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 18 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Card padding={22} style={{ background: `linear-gradient(160deg, ${D.surface}, ${D.surface2})` }}>
