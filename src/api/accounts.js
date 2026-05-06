@@ -46,6 +46,16 @@ export async function deduct(currency, amount) {
   return data;
 }
 
+/**
+ * GET /funds/history?currency=EUR
+ * Returns list of { operationId, operationType, amount, currency, date } newest first.
+ * operationType is "DEPOSIT" or "WITHDRAW".
+ */
+export async function getFundHistory(currency) {
+  const { data } = await api.get('/funds/history', { params: { currency } });
+  return Array.isArray(data) ? data : [];
+}
+
 /** Creates an account */
 export async function createAccount(currency) {
   const { data } = await api.post('/accounts', { currency }, {
