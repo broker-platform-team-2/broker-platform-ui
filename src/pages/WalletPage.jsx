@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, AreaChart } from '../components/shared/dark-ui';
-import { deposit, deduct, createAccount } from '../api/accounts';
+import { deposit, deduct, createAccount, getFundHistory } from '../api/accounts';
 import { useAccount } from '../context/AccountContext';
 
 function FundsModal({ mode, account, onConfirm, onClose }) {
@@ -378,26 +378,7 @@ function AddAccountModal({ existingCurrencies, onConfirm, onClose }) {
   );
 }
 
-// Movements are still mocked — transactions on the backend don't yet carry the
-// account-currency mapping. Wire to /transactions once that lands.
-const MOVEMENTS_EUR = [
-  { id: 'mv1', type: 'DEPOSIT',    amount: +5000.00, source: 'SEPA · ING NL',          status: 'COMPLETED', date: '2026-04-30T09:14:00', currency: 'EUR' },
-  { id: 'mv2', type: 'TRADE_BUY',  amount: -2102.40, source: 'Bought 12 ZEDA',         status: 'COMPLETED', date: '2026-04-28T14:32:00', currency: 'EUR' },
-  { id: 'mv3', type: 'TRADE_SELL', amount: +3970.00, source: 'Sold 200 KORU',          status: 'COMPLETED', date: '2026-04-28T11:08:00', currency: 'EUR' },
-  { id: 'mv4', type: 'FEE',        amount: -2.10,    source: 'Trade fee · ord-3492',   status: 'COMPLETED', date: '2026-04-28T14:32:00', currency: 'EUR' },
-  { id: 'mv5', type: 'DEPOSIT',    amount: +2500.00, source: 'SEPA · ING NL',          status: 'COMPLETED', date: '2026-04-22T11:00:00', currency: 'EUR' },
-  { id: 'mv6', type: 'WITHDRAWAL', amount: -800.00,  source: 'To NL12 INGB ··· 4421',  status: 'PENDING',   date: '2026-05-02T16:42:00', currency: 'EUR' },
-  { id: 'mv7', type: 'TRANSFER',   amount: -1000.00, source: 'To RON wallet',          status: 'COMPLETED', date: '2026-04-15T10:00:00', currency: 'EUR' },
-];
-const MOVEMENTS_RON = [
-  { id: 'rn1', type: 'TRANSFER', amount: +4950.00, source: 'From EUR @ 4.95',       status: 'COMPLETED', date: '2026-04-15T10:00:00', currency: 'RON' },
-  { id: 'rn2', type: 'DEPOSIT',  amount: +4000.00, source: 'BCR · IBAN ··· 1287',   status: 'COMPLETED', date: '2026-03-20T14:18:00', currency: 'RON' },
-];
-const MOVEMENTS_BY_CURRENCY = { EUR: MOVEMENTS_EUR, RON: MOVEMENTS_RON };
-
-const TYPE_LABEL = {
-  DEPOSIT: 'Deposit', WITHDRAWAL: 'Withdrawal', TRADE_BUY: 'Buy', TRADE_SELL: 'Sell', FEE: 'Fee', TRANSFER: 'Transfer',
-};
+const TYPE_LABEL = { DEPOSIT: 'Deposit', WITHDRAW: 'Withdrawal' };
 
 const CURRENCY_LABEL = {
   EUR: 'Euro',           USD: 'US Dollar',         GBP: 'British Pound',
@@ -418,7 +399,26 @@ const SYMBOL = {
   PLN: 'zł ', RON: 'lei ',
 };
 
-const CASHFLOW = [3200,3100,3500,3400,4800,4700,5100,5050,5200,4900,5400,5800,6100,5950,6400,6800,7200,7050,7600,8200,8100,8900,9300,9100,9800,10500,10400,11200,11800,12400,13100,14000,14800,15200,16100,16800,17400,17900,18420];
+// Build a 30-point running balance series from fund operations (oldest first).
+// currentBalance is the current real balance so we can reconstruct backwards.
+function buildCashflowSeries(operations, currentBalance) {
+  if (!operations || operations.length === 0) return [currentBalance];
+  // ops come in newest-first; reverse to process chronologically
+  const sorted = [...operations].reverse();
+  let running = currentBalance;
+  // Rewind to balance before all ops, then replay forward
+  for (const op of sorted) {
+    if (op.operationType === 'DEPOSIT') running -= Number(op.amount);
+    else running += Number(op.amount);
+  }
+  const points = [Math.max(0, running)];
+  for (const op of sorted) {
+    if (op.operationType === 'DEPOSIT') running += Number(op.amount);
+    else running -= Number(op.amount);
+    points.push(Math.max(0, running));
+  }
+  return points;
+}
 
 function ibanLast4(accountId) {
   // Decorative "··· 4421" suffix derived from accountId so each card looks unique.
@@ -429,19 +429,34 @@ export default function WalletPage() {
   const { accounts, activeId, setActiveId, refreshAccounts } = useAccount();
   const [tab, setTab] = useState('all');
   const [modal, setModal] = useState(null); // 'deposit' | 'withdraw' | 'add' | null
+  const [fundOps, setFundOps] = useState([]);
 
   const account = accounts.find(a => String(a.accountId) === String(activeId)) || accounts[0];
   const activeCurrency = account?.currency || 'EUR';
   const sym = SYMBOL[activeCurrency] || `${activeCurrency} `;
 
-  const movementsForCurrency = MOVEMENTS_BY_CURRENCY[activeCurrency] || [];
-  const movements = movementsForCurrency.filter(m => {
-    if (tab === 'all')  return true;
-    if (tab === 'in')   return m.amount > 0;
-    if (tab === 'out')  return m.amount < 0;
-    if (tab === 'fees') return m.type === 'FEE';
+  useEffect(() => {
+    if (!activeCurrency) return;
+    getFundHistory(activeCurrency)
+      .then(setFundOps)
+      .catch(() => setFundOps([]));
+  }, [activeCurrency, account?.balance]);
+
+  const movements = fundOps.filter(op => {
+    if (tab === 'all') return true;
+    if (tab === 'in')  return op.operationType === 'DEPOSIT';
+    if (tab === 'out') return op.operationType === 'WITHDRAW';
     return true;
   });
+
+  const cashflowData = buildCashflowSeries(fundOps, Number(account?.balance) || 0);
+
+  const totalDeposited = fundOps
+    .filter(op => op.operationType === 'DEPOSIT')
+    .reduce((s, op) => s + Number(op.amount), 0);
+  const totalWithdrawn = fundOps
+    .filter(op => op.operationType === 'WITHDRAW')
+    .reduce((s, op) => s + Number(op.amount), 0);
 
   const handleDepositConfirm = async (amount) => {
     await deposit(activeCurrency, amount);
@@ -591,26 +606,25 @@ export default function WalletPage() {
             </div>
           </div>
           <div style={{ marginLeft: -8, marginRight: -8 }}>
-            <AreaChart data={CASHFLOW} height={180} color={D.sage}/>
+            <AreaChart data={cashflowData} height={180} color={D.sage}/>
           </div>
         </Card>
-        {/*<Card padding={22} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>*/}
-        {/*  <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>This month</div>*/}
-        {/*  {[*/}
-        {/*    { label: 'Deposits',    value: '+€7,500.00', tone: D.buy },*/}
-        {/*    { label: 'Withdrawals', value: '−€800.00',   tone: D.ink70 },*/}
-        {/*    { label: 'Trade flow',  value: '+€1,867.60', tone: D.buy },*/}
-        {/*    { label: 'Fees',        value: '−€11.95',    tone: D.warn, hint: '→ funded €2.40 in microloans' },*/}
-        {/*  ].map(r => (*/}
-        {/*    <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: `1px solid ${D.hairline}`, paddingBottom: 12 }}>*/}
-        {/*      <div>*/}
-        {/*        <div style={{ fontSize: 12.5, color: D.ink70 }}>{r.label}</div>*/}
-        {/*        {r.hint && <div style={{ fontSize: 11, color: D.spring, marginTop: 2 }}>{r.hint}</div>}*/}
-        {/*      </div>*/}
-        {/*      <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15, color: r.tone, fontVariantNumeric: 'tabular-nums' }}>{r.value}</div>*/}
-        {/*    </div>*/}
-        {/*  ))}*/}
-        {/*</Card>*/}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {[
+            { label: 'Total deposited', value: totalDeposited, tone: D.buy, sign: '+' },
+            { label: 'Total withdrawn',  value: totalWithdrawn, tone: D.ink70, sign: '−' },
+          ].map(r => (
+            <Card key={r.label} padding={18}>
+              <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>{r.label}</div>
+              <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 22, color: r.tone, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
+                {r.sign}{sym}{r.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: 11, color: D.ink50, marginTop: 4 }}>
+                {fundOps.filter(op => (r.sign === '+' ? op.operationType === 'DEPOSIT' : op.operationType === 'WITHDRAW')).length} operations
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Movements */}
@@ -621,7 +635,7 @@ export default function WalletPage() {
             <div style={{ fontSize: 12, color: D.ink50, marginTop: 2 }}>{movements.length} entries · {activeCurrency}</div>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
-            {[['all', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['fees', 'Fees']].map(([id, l]) => (
+            {[['all', 'All'], ['in', 'Deposits'], ['out', 'Withdrawals']].map(([id, l]) => (
               <button key={id} onClick={() => setTab(id)} style={{
                 background: tab === id ? D.surface3 : 'transparent', border: 'none',
                 color: tab === id ? D.ink : D.ink50,
@@ -638,40 +652,34 @@ export default function WalletPage() {
           </div>
         )}
 
-        {movements.map((m, i) => {
-          const isIn = m.amount > 0;
-          const mSym = SYMBOL[m.currency] || `${m.currency} `;
-          const icon = m.type === 'DEPOSIT' ? '↓' : m.type === 'WITHDRAWAL' ? '↑' : m.type === 'FEE' ? '◇' : m.type === 'TRANSFER' ? '⇌' : isIn ? '↙' : '↗';
+        {movements.map((op, i) => {
+          const isDeposit = op.operationType === 'DEPOSIT';
+          const opSym = SYMBOL[op.currency] || `${op.currency} `;
+          const icon = isDeposit ? '↓' : '↑';
           return (
-            <div key={m.id} style={{
-              display: 'grid', gridTemplateColumns: '40px 1.4fr 1fr 1fr 1fr',
+            <div key={op.operationId} style={{
+              display: 'grid', gridTemplateColumns: '40px 1fr 1fr 1fr',
               padding: '14px 22px', alignItems: 'center', gap: 14,
               borderBottom: i === movements.length - 1 ? 'none' : `1px solid ${D.hairline}`,
               fontFamily: FONT_BODY, fontSize: 13,
             }}>
               <div style={{
                 width: 36, height: 36, borderRadius: 10,
-                background: m.type === 'FEE' ? D.warnBg : isIn ? D.buyBg : 'rgba(255,255,255,0.06)',
-                color: m.type === 'FEE' ? D.warn : isIn ? D.buy : D.ink70,
+                background: isDeposit ? D.buyBg : 'rgba(255,255,255,0.06)',
+                color: isDeposit ? D.buy : D.ink70,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
               }}>{icon}</div>
               <div>
-                <div style={{ color: D.ink, fontWeight: 600 }}>{TYPE_LABEL[m.type]}</div>
-                <div style={{ fontSize: 11.5, color: D.ink50, marginTop: 1 }}>{m.source}</div>
+                <div style={{ color: D.ink, fontWeight: 600 }}>{TYPE_LABEL[op.operationType]}</div>
+                <div style={{ fontSize: 11.5, color: D.ink50, marginTop: 1 }}>#{op.operationId}</div>
               </div>
               <div style={{ color: D.ink70, fontSize: 12 }}>
-                {new Date(m.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}<br/>
-                <span style={{ fontSize: 11, color: D.ink50 }}>{new Date(m.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
-              </div>
-              <div>
-                <Pill
-                  color={m.status === 'COMPLETED' ? D.sage : D.warn}
-                  bg={m.status === 'COMPLETED' ? D.sageBg : D.warnBg}
-                >{m.status}</Pill>
+                {new Date(op.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}<br/>
+                <span style={{ fontSize: 11, color: D.ink50 }}>{new Date(op.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
               <div style={{ textAlign: 'right', fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15,
-                color: isIn ? D.buy : D.ink, fontVariantNumeric: 'tabular-nums' }}>
-                {isIn ? '+' : '−'}{mSym}{Math.abs(m.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                color: isDeposit ? D.buy : D.ink, fontVariantNumeric: 'tabular-nums' }}>
+                {isDeposit ? '+' : '−'}{opSym}{Number(op.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           );
