@@ -132,9 +132,6 @@ function FundsModal({ mode, account, onConfirm, onClose }) {
                 padding: '16px 0', fontVariantNumeric: 'tabular-nums',
               }}
             />
-            <span style={{ fontSize: 12, color: D.ink50, fontWeight: 700, letterSpacing: 0.5 }}>
-              {account?.currency}
-            </span>
           </div>
         </div>
 

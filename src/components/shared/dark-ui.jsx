@@ -1,5 +1,5 @@
 // Shared dark-theme primitives (Card, Pill, Money, Delta, Sparkline, AreaChart, KPI).
-import React from 'react';
+import React, {useState} from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 
 export const Card = ({ children, padding = 22, style }) => (
@@ -134,3 +134,4 @@ export function genOrderBook(price, seed) {
   }
   return { bids, asks };
 }
+
