@@ -19,6 +19,10 @@ export async function resetPassword({ token, newPassword }) {
   await api.post('/users/reset-password', { token, newPassword });
 }
 
+export async function changePassword({ userId, oldPassword, newPassword }) {
+  await api.put(`/users/${userId}/password`, { oldPassword, newPassword });
+}
+
 export async function verifyEmail(token) {
   await api.get('/users/verify-email', { params: { token } });
 }

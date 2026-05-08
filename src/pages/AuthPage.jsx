@@ -214,7 +214,7 @@ const ForgotForm = ({ onBack, onSent }) => {
       </button>
 
       <Heading eyebrow="Reset your password" title="No worries, we've got you"
-        sub="Enter the email tied to your account and we'll send you a secure reset link."/>
+        sub="Enter the email tied to your account and we'll send you a reset token."/>
 
       <Field label="Email" error={error}>
         <Input type="email" value={email} onChange={setEmail} placeholder="name@example.com"
@@ -222,7 +222,7 @@ const ForgotForm = ({ onBack, onSent }) => {
       </Field>
 
       <Button type="submit" variant="primary" full loading={loading}>
-        {loading ? 'Sending…' : <>Send reset link {Icon.arrow}</>}
+        {loading ? 'Sending…' : <>Send reset token {Icon.arrow}</>}
       </Button>
 
       <div style={{ marginTop: 18, fontFamily: FONT_BODY, fontSize: 12, color: W.ink40, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -241,12 +241,15 @@ const SuccessIllustration = ({ tint }) => (
   </div>
 );
 
-const EmailSent = ({ email, onBack, onResend }) => (
+const EmailSent = ({ email, onBack, onResend, onEnterToken }) => (
   <div>
     <SuccessIllustration tint={W.sage}/>
-    <Heading eyebrow="Check your inbox" title="Reset link sent"
-      sub={<>If <strong style={{ color: W.ink }}>{email}</strong> is registered, a secure reset link is on its way. The link expires in 30 minutes.</>}/>
-    <Button variant="primary" full onClick={onBack}>Back to log in</Button>
+    <Heading eyebrow="Check your inbox" title="Reset token sent"
+      sub={<>If <strong style={{ color: W.ink }}>{email}</strong> is registered, a reset token is on its way. The token expires in 30 minutes.</>}/>
+    <Button variant="primary" full onClick={onEnterToken}>Enter reset token {Icon.arrow}</Button>
+    <div style={{ marginTop: 12 }}>
+      <Button variant="ghost" full onClick={onBack}>Back to log in</Button>
+    </div>
     <div style={{ marginTop: 16, textAlign: 'center', fontFamily: FONT_BODY, fontSize: 13, color: W.ink60 }}>
       Didn't get it?{' '}
       <button type="button" onClick={onResend}
@@ -254,6 +257,77 @@ const EmailSent = ({ email, onBack, onResend }) => (
         Send again
       </button>
     </div>
+  </div>
+);
+
+const ResetForm = ({ onBack, onDone }) => {
+  const [token, setToken] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [serverError, setServerError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!token.trim()) errs.token = 'Enter the token from your email.';
+    if (!passwordValid(password)) errs.password = 'Password does not meet all requirements.';
+    setErrors(errs); setServerError('');
+    if (Object.keys(errs).length) return;
+
+    setLoading(true);
+    try {
+      await authApi.resetPassword({ token: token.trim(), newPassword: password });
+      onDone();
+    } catch (err) {
+      setServerError(extractError(err, 'Reset failed. The token may be invalid or expired.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column' }}>
+      <button type="button" onClick={onBack}
+        style={{ background: 'none', border: 'none', color: W.ink60, cursor: 'pointer', fontFamily: FONT_BODY, fontSize: 13, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginBottom: 18 }}>
+        {Icon.back} Back
+      </button>
+
+      <Heading eyebrow="Reset your password" title="Enter your reset token"
+        sub="Paste the token from your email, then choose a new password."/>
+      {serverError && <ErrorBanner>{serverError}</ErrorBanner>}
+
+      <Field label="Reset token" error={errors.token}>
+        <Input value={token} onChange={setToken} placeholder="Paste token here"
+          leftIcon={Icon.shield} invalid={!!errors.token} autoFocus/>
+      </Field>
+
+      <Field label="New password" error={errors.password}>
+        <Input type={showPw ? 'text' : 'password'} value={password} onChange={setPassword}
+          placeholder="At least 10 characters" autoComplete="new-password" leftIcon={Icon.lock} invalid={!!errors.password}
+          rightSlot={
+            <button type="button" onClick={() => setShowPw(s => !s)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: W.ink40, padding: 4, marginLeft: 6, display: 'flex' }}>
+              {showPw ? Icon.eyeOff : Icon.eye}
+            </button>
+          }/>
+        <StrengthMeter password={password}/>
+      </Field>
+
+      <Button type="submit" variant="primary" full loading={loading}>
+        {loading ? 'Resetting…' : <>Set new password {Icon.arrow}</>}
+      </Button>
+    </form>
+  );
+};
+
+const ResetSuccess = ({ onLogin }) => (
+  <div>
+    <SuccessIllustration tint={W.sage}/>
+    <Heading eyebrow="All done" title="Password updated"
+      sub="Your password has been reset. You can now log in with your new password."/>
+    <Button variant="primary" full onClick={onLogin}>Back to log in {Icon.arrow}</Button>
   </div>
 );
 
@@ -265,7 +339,9 @@ export default function AuthPage({ initial = 'login' }) {
   if (view === 'login') body = <LoginForm onSwitch={() => setView('signup')} onForgot={() => setView('forgot')}/>;
   else if (view === 'signup') body = <SignupForm onSwitch={() => setView('login')}/>;
   else if (view === 'forgot') body = <ForgotForm onBack={() => setView('login')} onSent={(e) => { setResetEmail(e); setView('sent'); }}/>;
-  else if (view === 'sent') body = <EmailSent email={resetEmail} onBack={() => setView('login')} onResend={() => setView('forgot')}/>;
+  else if (view === 'sent') body = <EmailSent email={resetEmail} onBack={() => setView('login')} onResend={() => setView('forgot')} onEnterToken={() => setView('reset')}/>;
+  else if (view === 'reset') body = <ResetForm onBack={() => setView('sent')} onDone={() => setView('resetDone')}/>;
+  else if (view === 'resetDone') body = <ResetSuccess onLogin={() => setView('login')}/>;
 
   return (
     <div style={{
