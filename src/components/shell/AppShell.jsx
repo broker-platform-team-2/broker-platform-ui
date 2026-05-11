@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
@@ -25,11 +25,46 @@ const NavIcon = ({ name }) => {
   return null;
 };
 
+function getMarketStatus() {
+  const now = new Date();
+  const day = now.getDay();
+  const h = now.getHours();
+  const isWeekday = day >= 1 && day <= 5;
+  const isOpen = isWeekday && h >= 9 && h < 17;
+
+  if (isOpen) return { open: true, next: null };
+
+  // figure out next opening
+  let daysUntilOpen;
+  if (day === 0) daysUntilOpen = 1;         // Sunday → Monday
+  else if (day === 6) daysUntilOpen = 2;    // Saturday → Monday
+  else if (h < 9) daysUntilOpen = 0;        // weekday before open
+  else daysUntilOpen = day === 5 ? 3 : 1;   // after close: next weekday
+
+  const next = new Date(now);
+  next.setDate(now.getDate() + daysUntilOpen);
+  next.setHours(9, 0, 0, 0);
+
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const label = daysUntilOpen === 0 ? 'today' : daysUntilOpen === 1 ? 'tomorrow' : days[next.getDay()];
+  return { open: false, next: `Opens ${label} 09:00` };
+}
+
+function useMarketOpen() {
+  const [status, setStatus] = useState(getMarketStatus);
+  useEffect(() => {
+    const id = setInterval(() => setStatus(getMarketStatus()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  return status;
+}
+
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout } = useAuth();
   const active = NAV.find(n => location.pathname.startsWith(n.path))?.id ?? 'home';
+  const { open: marketOpen, next: marketNext } = useMarketOpen();
 
   return (
     <aside style={{
@@ -76,10 +111,12 @@ const Sidebar = () => {
       }}>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Market</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: D.sage, boxShadow: `0 0 8px ${D.sage}` }}/>
-          <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: D.ink }}>Open</span>
+          <span style={{ width: 8, height: 8, borderRadius: 4, background: marketOpen ? D.sage : '#FF6B6B', boxShadow: marketOpen ? `0 0 8px ${D.sage}` : 'none' }}/>
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: D.ink }}>{marketOpen ? 'Open' : 'Closed'}</span>
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: D.ink50, lineHeight: 1.4 }}>Closes 17:00 · Sim 60×</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: D.ink50, lineHeight: 1.4 }}>
+          {!marketOpen && marketNext && <span>{marketNext} · </span>}
+        </div>
       </div>
 
       <button onClick={logout} style={{
@@ -150,11 +187,6 @@ const TopBar = ({ title, subtitle }) => {
             </div>
           </div>
         )}
-        <button style={{
-          background: D.surface, border: `1px solid ${D.hairline}`, color: D.ink70,
-          width: 36, height: 36, borderRadius: 10, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}><NavIcon name="bell"/></button>
         <Link to="/profile" title={user?.username || 'Profile'} style={{
           width: 36, height: 36, borderRadius: 18,
           background: `linear-gradient(135deg, ${D.sage}, ${D.teal})`,
