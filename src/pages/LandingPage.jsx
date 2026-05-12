@@ -4,11 +4,14 @@ import { Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { WakibiMark } from '../components/shared/WakibiMark';
 import { Pill, AreaChart, genSeries } from '../components/shared/dark-ui';
-import { STOCKS } from '../data/mockMarket';
+import { getStocks } from '../api/market';
 
 export default function LandingPage() {
   const [, setTick] = useState(0);
+  const [stocks, setStocks] = useState([]);
+
   useEffect(() => {
+    getStocks().then(list => { if (list.length > 0) setStocks(list); }).catch(() => {});
     const id = setInterval(() => setTick(t => t + 1), 2400);
     return () => clearInterval(id);
   }, []);
@@ -60,7 +63,7 @@ export default function LandingPage() {
           animation: 'lp-tape 60s linear infinite',
           width: 'max-content',
         }}>
-          {[...STOCKS, ...STOCKS].map((s, i) => (
+          {[...stocks, ...stocks].map((s, i) => (
             <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>
               <span style={{ fontFamily: FONT_HEAD, fontWeight: 700, color: D.ink, letterSpacing: 0.3 }}>{s.ticker}</span>
               <span style={{ color: D.ink70 }}>€{s.price.toFixed(2)}</span>

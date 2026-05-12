@@ -1,42 +1,96 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
-import { Card, Pill, Money, Delta, AreaChart, KPI, genSeries, genOrderBook, seedRand } from '../components/shared/dark-ui';
-import { STOCKS, SECTORS } from '../data/mockMarket';
+import { Card, Pill, Money, Delta, AreaChart, KPI, seedRand } from '../components/shared/dark-ui';
+import { getStocks, getOrderBook, getStockHistory } from '../api/market';
 
 export default function StocksPage() {
-  const [selected, setSelected] = useState('ZEDA');
+  const [stocks, setStocks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('All');
   const [range, setRange] = useState('1M');
+  const [liveBook, setLiveBook] = useState(null);
+  const [liveHistory, setLiveHistory] = useState(null);
+  const [fetchError, setFetchError] = useState('');
 
-  const stock = STOCKS.find(s => s.ticker === selected);
-  const sectors = ['All', ...SECTORS];
-  const filtered = STOCKS.filter(s => filter === 'All' || s.sector === filter);
+  useEffect(() => {
+    getStocks()
+      .then(list => {
+        setStocks(list);
+        if (list.length > 0) setSelected(list[0].ticker);
+      })
+      .catch(err => {
+        const status = err?.response?.status;
+        const msg = err?.response?.data?.message || err?.message || 'Unknown error';
+        setFetchError(status ? `HTTP ${status} — ${msg}` : msg);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  const series = useMemo(() => genSeries(stock.ticker.charCodeAt(0) * 13, 80, stock.price * 0.85, stock.volatility), [stock.ticker, stock.price, stock.volatility]);
-  const adjusted = useMemo(() => {
-    const last = series[series.length - 1];
-    const ratio = stock.price / last;
-    return series.map(v => v * ratio);
-  }, [series, stock.price]);
+  useEffect(() => {
+    if (!selected) return;
+    setLiveBook(null);
+    setLiveHistory(null);
+    getOrderBook(selected)
+      .then(b => { if (b.bids.length || b.asks.length) setLiveBook(b); })
+      .catch(() => {});
+    getStockHistory(selected, range)
+      .then(h => { if (h.length) setLiveHistory(h); })
+      .catch(() => {});
+  }, [selected, range]);
+
+  // All hooks must run before any early return
+  const stock = stocks.find(s => s.ticker === selected) || stocks[0] || null;
+
+  const chartPrices = useMemo(() => {
+    if (!stock) return [];
+    return liveHistory?.length ? liveHistory : new Array(10).fill(stock.price);
+  }, [liveHistory, stock]);
 
   const prediction = useMemo(() => {
-    const last = adjusted[adjusted.length - 1];
-    const trend = stock.changePct / 100;
+    if (!stock || !chartPrices.length) return [];
+    const last = chartPrices[chartPrices.length - 1] || stock.price;
+    const trend = (stock.changePct || 0) / 100;
     const r = seedRand(stock.ticker.charCodeAt(0));
     const out = [last];
     for (let i = 0; i < 18; i++) {
-      const v = out[out.length - 1] * (1 + trend / 30 + (r() - 0.5) * stock.volatility * 0.4);
-      out.push(v);
+      out.push(out[out.length - 1] * (1 + trend / 30 + (r() - 0.5) * (stock.volatility || 0.03) * 0.4));
     }
     return out;
-  }, [adjusted, stock]);
+  }, [chartPrices, stock]);
 
-  const orderBook = useMemo(() => genOrderBook(stock.price, stock.ticker.charCodeAt(0) * 7), [stock.ticker, stock.price]);
-  const maxQty = Math.max(...orderBook.bids.map(b => b.qty), ...orderBook.asks.map(a => a.qty));
+  const maxQty = useMemo(
+    () => liveBook ? Math.max(...liveBook.bids.map(b => b.qty), ...liveBook.asks.map(a => a.qty), 1) : 1,
+    [liveBook]
+  );
+
+  if (loading) {
+    return (
+      <AppShell title="Markets" subtitle="Loading…">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 130px)', color: D.ink50, fontSize: 14 }}>
+          Fetching market data…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (stocks.length === 0) {
+    return (
+      <AppShell title="Markets" subtitle="Exchange unavailable">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 130px)', gap: 10 }}>
+          <div style={{ color: D.ink50, fontSize: 14 }}>No market data available. Ensure the exchange is running.</div>
+          {fetchError && <div style={{ color: D.sell, fontSize: 12, fontFamily: 'monospace', maxWidth: 600, textAlign: 'center' }}>{fetchError}</div>}
+        </div>
+      </AppShell>
+    );
+  }
+
+  const sectors = ['All', ...new Set(stocks.map(s => s.sector))];
+  const filtered = stocks.filter(s => filter === 'All' || s.sector === filter);
 
   return (
-    <AppShell title="Markets" subtitle={`Live · Wakibi Exchange · ${STOCKS.length} listed equities`}>
+    <AppShell title="Markets" subtitle={`Live · Wakibi Exchange · ${stocks.length} listed equities`}>
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18, height: 'calc(100vh - 130px)' }}>
         {/* List panel */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
@@ -47,16 +101,15 @@ export default function StocksPage() {
                 border: `1px solid ${filter === s ? D.sage : D.hairline}`,
                 color: filter === s ? D.plumDeep : D.ink70,
                 padding: '5px 11px', borderRadius: 7,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                fontFamily: FONT_BODY,
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT_BODY,
               }}>{s}</button>
             ))}
           </div>
 
           <Card padding={0} style={{ flex: 1, overflow: 'auto' }}>
             <div style={{
-              padding: '10px 14px',
-              fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600,
+              padding: '10px 14px', fontSize: 11, color: D.ink50,
+              textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600,
               borderBottom: `1px solid ${D.hairline}`,
               display: 'grid', gridTemplateColumns: '1fr 70px 60px',
             }}>
@@ -78,8 +131,7 @@ export default function StocksPage() {
                   <div style={{ fontSize: 11, color: D.ink50, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</div>
                 </div>
                 <div style={{ textAlign: 'right', fontFamily: FONT_BODY, fontVariantNumeric: 'tabular-nums', color: D.ink, fontSize: 13, fontWeight: 500 }}>€{s.price.toFixed(2)}</div>
-                <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600,
-                  color: s.changePct >= 0 ? D.buy : D.sell }}>
+                <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: s.changePct >= 0 ? D.buy : D.sell }}>
                   {s.changePct >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%
                 </div>
               </div>
@@ -93,8 +145,7 @@ export default function StocksPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{
-                  width: 56, height: 56, borderRadius: 14,
-                  background: D.surface3,
+                  width: 56, height: 56, borderRadius: 14, background: D.surface3,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: 0.2,
                 }}>{stock.ticker.slice(0, 4)}</div>
@@ -120,14 +171,13 @@ export default function StocksPage() {
                   border: `1px solid ${range === r ? D.sage : D.hairline}`,
                   color: range === r ? D.plumDeep : D.ink70,
                   padding: '5px 12px', borderRadius: 7,
-                  fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: FONT_BODY,
+                  fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT_BODY,
                 }}>{r}</button>
               ))}
             </div>
 
             <div style={{ marginTop: 6, marginLeft: -8, marginRight: -8, position: 'relative' }}>
-              <AreaChart data={[...adjusted, ...prediction.slice(1)]} height={240} color={stock.changePct >= 0 ? D.sage : D.sell}/>
+              <AreaChart data={[...chartPrices, ...prediction.slice(1)]} height={240} color={stock.changePct >= 0 ? D.sage : D.sell}/>
               <div style={{
                 position: 'absolute', top: 8, right: 12, padding: '6px 10px',
                 background: 'rgba(0,0,0,0.4)', borderRadius: 7, border: `1px solid ${D.hairline}`,
@@ -142,26 +192,23 @@ export default function StocksPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: 16 }}>
             <Card padding={22}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 18 }}>
-                <KPI label="Open" value={`€${(stock.price - stock.change).toFixed(2)}`}/>
+                <KPI label="Open" value={`€${(stock.price - (stock.change || 0)).toFixed(2)}`}/>
                 <KPI label="Day high" value={`€${(stock.price * 1.012).toFixed(2)}`}/>
                 <KPI label="Day low" value={`€${(stock.price * 0.987).toFixed(2)}`}/>
-                <KPI label="Volume" value={`${(stock.volume / 1000).toFixed(1)}k`}/>
-                <KPI label="Mkt cap" value={`€${stock.mcap}`}/>
-                <KPI label="Volatility" value={`${(stock.volatility * 100).toFixed(1)}%`}/>
-                <KPI label="P/E" value="24.6"/>
+                <KPI label="Volume" value={stock.volume > 0 ? `${(stock.volume / 1000).toFixed(1)}k` : '—'}/>
+                <KPI label="Mkt cap" value={stock.mcap && stock.mcap !== '—' ? `€${stock.mcap}` : '—'}/>
+                <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
+                <KPI label="P/E" value="—"/>
                 <KPI label="52w range" value={`€${(stock.price * 0.6).toFixed(0)}–${(stock.price * 1.4).toFixed(0)}`}/>
               </div>
 
               <div style={{
                 background: `linear-gradient(135deg, ${D.surface2}, ${D.surface3})`,
-                borderRadius: 14, padding: 16,
-                display: 'flex', gap: 16, alignItems: 'center',
+                borderRadius: 14, padding: 16, display: 'flex', gap: 16, alignItems: 'center',
               }}>
                 <div style={{
-                  width: 44, height: 44, borderRadius: 12,
-                  background: 'rgba(168,214,112,0.16)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0,
+                  width: 44, height: 44, borderRadius: 12, background: 'rgba(168,214,112,0.16)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                 }}>
                   <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
                     <path d="M3 16l5-5 3 3 6-8" stroke={D.spring} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -171,7 +218,7 @@ export default function StocksPage() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>Algorithmic forecast · 7-day</div>
                   <div style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
-                    Target <span style={{ color: D.spring }}>€{(stock.price * (1 + stock.changePct / 100 * 1.5)).toFixed(2)}</span>
+                    Target <span style={{ color: D.spring }}>€{(stock.price * (1 + (stock.changePct || 0) / 100 * 1.5)).toFixed(2)}</span>
                     <span style={{ color: D.ink50, fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· 71% confidence</span>
                   </div>
                 </div>
@@ -188,41 +235,43 @@ export default function StocksPage() {
                 <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, color: D.ink, letterSpacing: '-0.01em' }}>Order book</div>
                 <div style={{ fontSize: 11, color: D.ink50, marginTop: 2 }}>Top 7 bids & asks · live</div>
               </div>
-              <div style={{ padding: '8px 18px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: 10.5, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
-                <div>Bid</div><div style={{ textAlign: 'center' }}>Qty</div><div style={{ textAlign: 'right' }}>Ask</div>
-              </div>
 
-              {orderBook.bids.map((b, i) => {
-                const a = orderBook.asks[i];
-                return (
-                  <div key={i} style={{
-                    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
-                    fontSize: 12, fontVariantNumeric: 'tabular-nums',
-                    padding: '5px 18px', position: 'relative', alignItems: 'center',
-                  }}>
-                    <div style={{
-                      position: 'absolute', left: 0, top: 0, bottom: 0,
-                      width: `${(b.qty / maxQty) * 50}%`, maxWidth: '50%',
-                      background: D.buyBg, opacity: 0.6,
-                    }}/>
-                    <div style={{
-                      position: 'absolute', right: 0, top: 0, bottom: 0,
-                      width: `${(a.qty / maxQty) * 50}%`, maxWidth: '50%',
-                      background: D.sellBg, opacity: 0.6,
-                    }}/>
-                    <div style={{ color: D.buy, fontWeight: 600, position: 'relative' }}>€{b.price.toFixed(2)}</div>
-                    <div style={{ textAlign: 'center', color: D.ink70, position: 'relative' }}>{(b.qty + a.qty).toLocaleString()}</div>
-                    <div style={{ textAlign: 'right', color: D.sell, fontWeight: 600, position: 'relative' }}>€{a.price.toFixed(2)}</div>
-                  </div>
-                );
-              })}
-
-              <div style={{ borderTop: `1px solid ${D.hairline}`, padding: '12px 18px', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: D.surface2 }}>
-                <div style={{ fontSize: 11, color: D.ink50 }}>Spread</div>
-                <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
-                  €{(orderBook.asks[0].price - orderBook.bids[0].price).toFixed(2)} <span style={{ color: D.ink50, fontWeight: 400 }}>· 0.14%</span>
+              {!liveBook ? (
+                <div style={{ padding: '32px 18px', textAlign: 'center', color: D.ink50, fontSize: 12 }}>
+                  Fetching order book…
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div style={{ padding: '8px 18px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: 10.5, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
+                    <div>Bid</div><div style={{ textAlign: 'center' }}>Qty</div><div style={{ textAlign: 'right' }}>Ask</div>
+                  </div>
+
+                  {liveBook.bids.map((b, i) => {
+                    const a = liveBook.asks[i];
+                    if (!a) return null;
+                    return (
+                      <div key={i} style={{
+                        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+                        fontSize: 12, fontVariantNumeric: 'tabular-nums',
+                        padding: '5px 18px', position: 'relative', alignItems: 'center',
+                      }}>
+                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(b.qty / maxQty) * 50}%`, maxWidth: '50%', background: D.buyBg, opacity: 0.6 }}/>
+                        <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: `${(a.qty / maxQty) * 50}%`, maxWidth: '50%', background: D.sellBg, opacity: 0.6 }}/>
+                        <div style={{ color: D.buy, fontWeight: 600, position: 'relative' }}>€{b.price.toFixed(2)}</div>
+                        <div style={{ textAlign: 'center', color: D.ink70, position: 'relative' }}>{(b.qty + a.qty).toLocaleString()}</div>
+                        <div style={{ textAlign: 'right', color: D.sell, fontWeight: 600, position: 'relative' }}>€{a.price.toFixed(2)}</div>
+                      </div>
+                    );
+                  })}
+
+                  <div style={{ borderTop: `1px solid ${D.hairline}`, padding: '12px 18px', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: D.surface2 }}>
+                    <div style={{ fontSize: 11, color: D.ink50 }}>Spread</div>
+                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
+                      €{(liveBook.asks[0].price - liveBook.bids[0].price).toFixed(2)}
+                    </div>
+                  </div>
+                </>
+              )}
             </Card>
           </div>
         </div>

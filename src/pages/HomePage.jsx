@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, Sparkline, AreaChart, genSeries } from '../components/shared/dark-ui';
-import { findStock } from '../data/mockMarket';
+import { getStocks } from '../api/market';
 import { getMyHoldings } from '../api/holdings';
 import { getMyTransactions } from '../api/transactions';
 import { getMyAccounts } from '../api/accounts';
@@ -40,6 +40,13 @@ export default function HomePage() {
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [stockMap, setStockMap] = useState({});
+
+  useEffect(() => {
+    getStocks()
+      .then(list => { if (list.length > 0) setStockMap(Object.fromEntries(list.map(s => [s.ticker, s]))); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -62,7 +69,7 @@ export default function HomePage() {
       .filter(h => (h.instrumentType || h.type) === 'STOCK')
       .map(h => {
         const ticker = h.instrumentId || h.ticker;
-        const stock = findStock(ticker);
+        const stock = stockMap[ticker];
         const amount = Number(h.amount || 0);
         const avgCost = Number(h.averageCost ?? h.avgCost ?? 0);
         const value = amount * (stock?.price ?? avgCost);
@@ -75,7 +82,7 @@ export default function HomePage() {
     const totalPnl = totalValue - totalCost;
     const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
     return { rows, totalValue, totalCost, totalPnl, totalPnlPct };
-  }, [holdings]);
+  }, [holdings, stockMap]);
 
   const portfolioSeries = useMemo(
     () => genSeries(42, 80, 100, 0.025).map(v => v * Math.max(1, portfolio.totalValue) / 100),
