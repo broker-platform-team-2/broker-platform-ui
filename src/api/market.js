@@ -54,6 +54,16 @@ export async function getOrderBook(ticker) {
   return { bids, asks };
 }
 
+export async function getMarketStatus() {
+  try {
+    const { data } = await exchange.get('/admin/market/status');
+    const isOpen = data.is_open ?? data.isOpen ?? data.status === 'OPEN' ?? false;
+    return { isOpen, status: data.status ?? (isOpen ? 'OPEN' : 'CLOSED'), raw: data };
+  } catch {
+    return { isOpen: false, status: 'UNKNOWN' };
+  }
+}
+
 export async function getStockHistory(ticker, range = '1M') {
   const now = new Date();
   const from = new Date(now);

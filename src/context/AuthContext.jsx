@@ -15,6 +15,7 @@ function loadStoredUser() {
   }
 }
 
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => (getToken() ? loadStoredUser() : null));
 

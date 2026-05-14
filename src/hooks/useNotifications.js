@@ -26,6 +26,7 @@ export function useNotifications(onMessage) {
       ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
       ws.onopen = () => { setConnected(true); retry = 0; };
       ws.onmessage = (event) => {
+        if (cancelled) return;
         try {
           const msg = JSON.parse(event.data);
           setLastMessage(msg);
@@ -47,7 +48,7 @@ export function useNotifications(onMessage) {
     return () => {
       cancelled = true;
       clearTimeout(reconnectTimer);
-      try { ws?.close(); } catch { /* noop */ }
+      try { if (ws) ws.close(); } catch { /* noop */ }
     };
   }, []);
 

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { NotificationsProvider } from './context/NotificationsContext';
 import AuthPage from './pages/AuthPage';
 import HomePage from './pages/HomePage';
 import StocksPage from './pages/StocksPage';
@@ -10,10 +11,14 @@ import WalletPage from './pages/WalletPage';
 import OrdersPage from './pages/OrdersPage';
 import ProfilePage from './pages/ProfilePage';
 
-function ProtectedRoute({ children }) {
+function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return children;
+  return (
+    <NotificationsProvider>
+      <Outlet />
+    </NotificationsProvider>
+  );
 }
 
 function PublicOnlyRoute({ children }) {
@@ -23,7 +28,6 @@ function PublicOnlyRoute({ children }) {
 }
 
 function RootRoute() {
-  // Authenticated visitors land on /home; guests get the marketing landing page.
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />;
 }
@@ -38,14 +42,15 @@ export default function App() {
       <Route path="/forgot"  element={<PublicOnlyRoute><AuthPage initial="forgot" /></PublicOnlyRoute>} />
       <Route path="/landing" element={<LandingPage />} />
 
-      <Route path="/home"    element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
-      <Route path="/markets" element={<ProtectedRoute><StocksPage /></ProtectedRoute>} />
-      <Route path="/trade"   element={<ProtectedRoute><TradePage /></ProtectedRoute>} />
-      <Route path="/orders"  element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
-      <Route path="/wallet"  element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
-      <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-
-      <Route path="*" element={<Navigate to="/home" replace />} />
+      <Route element={<ProtectedLayout />}>
+        <Route path="/home"    element={<HomePage />} />
+        <Route path="/markets" element={<StocksPage />} />
+        <Route path="/trade"   element={<TradePage />} />
+        <Route path="/orders"  element={<OrdersPage />} />
+        <Route path="/wallet"  element={<WalletPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="*" element={<Navigate to="/home" replace />} />
+      </Route>
     </Routes>
   );
 }
