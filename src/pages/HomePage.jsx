@@ -7,6 +7,7 @@ import { getMyHoldings } from '../api/holdings';
 import { getMyTransactions } from '../api/transactions';
 import { getMyAccounts } from '../api/accounts';
 import { useAuth } from '../context/AuthContext';
+import { useLivePrices } from '../context/NotificationsContext';
 
 const Stat = ({ label, value, tone }) => (
   <div>
@@ -40,11 +41,32 @@ export default function HomePage() {
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [stockMap, setStockMap] = useState({});
+  const [baseStockMap, setBaseStockMap] = useState({});
+
+  const livePrices = useLivePrices();
+
+  // Overlay live PRICE_UPDATEs over the initial REST snapshot so portfolio
+  // valuations and any displayed prices keep pace with the exchange feed.
+  const stockMap = useMemo(() => {
+    const out = { ...baseStockMap };
+    for (const ticker of Object.keys(livePrices)) {
+      const live = livePrices[ticker];
+      const base = out[ticker];
+      if (!live) continue;
+      out[ticker] = {
+        ...(base || { ticker, name: ticker, sector: 'Other', volume: 0, mcap: '—', volatility: 0.03 }),
+        price: live.price || base?.price || 0,
+        change: live.change ?? base?.change ?? 0,
+        changePct: live.changePct ?? base?.changePct ?? 0,
+        volume: live.volume || base?.volume || 0,
+      };
+    }
+    return out;
+  }, [baseStockMap, livePrices]);
 
   useEffect(() => {
     getStocks()
-      .then(list => { if (list.length > 0) setStockMap(Object.fromEntries(list.map(s => [s.ticker, s]))); })
+      .then(list => { if (list.length > 0) setBaseStockMap(Object.fromEntries(list.map(s => [s.ticker, s]))); })
       .catch(() => {});
   }, []);
 

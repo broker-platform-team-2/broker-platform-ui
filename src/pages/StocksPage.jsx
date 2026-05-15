@@ -3,9 +3,10 @@ import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, AreaChart, KPI, seedRand } from '../components/shared/dark-ui';
 import { getStocks, getOrderBook, getStockHistory } from '../api/market';
+import { useLivePrices } from '../context/NotificationsContext';
 
 export default function StocksPage() {
-  const [stocks, setStocks] = useState([]);
+  const [baseStocks, setBaseStocks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('All');
@@ -14,10 +15,25 @@ export default function StocksPage() {
   const [liveHistory, setLiveHistory] = useState(null);
   const [fetchError, setFetchError] = useState('');
 
+  const livePrices = useLivePrices();
+
+  // Merge live PRICE_UPDATEs over the initial REST snapshot.
+  const stocks = useMemo(() => baseStocks.map(s => {
+    const live = livePrices[String(s.ticker).toUpperCase()];
+    if (!live) return s;
+    return {
+      ...s,
+      price: live.price || s.price,
+      change: live.change ?? s.change,
+      changePct: live.changePct ?? s.changePct,
+      volume: live.volume || s.volume,
+    };
+  }), [baseStocks, livePrices]);
+
   useEffect(() => {
     getStocks()
       .then(list => {
-        setStocks(list);
+        setBaseStocks(list);
         if (list.length > 0) setSelected(list[0].ticker);
       })
       .catch(err => {

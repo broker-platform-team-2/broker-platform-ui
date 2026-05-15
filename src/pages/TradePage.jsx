@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
@@ -7,6 +7,7 @@ import { getStocks, getStockHistory } from '../api/market';
 import { placeOrder } from '../api/orders';
 import { getMyHoldings } from '../api/holdings';
 import { useAccount } from '../context/AccountContext';
+import { useLivePrices } from '../context/NotificationsContext';
 import { fromEUR, getRate } from '../data/exchangeRates';
 
 const SYMBOLS = {
@@ -49,8 +50,21 @@ export default function TradePage() {
   const [qty, setQty] = useState(10);
   const [limitPrice, setLimitPrice] = useState(null);
   const [tif, setTif] = useState('GTC');
-  const [stocks, setStocks] = useState([]);
+  const [baseStocks, setBaseStocks] = useState([]);
   const [loadingStocks, setLoadingStocks] = useState(true);
+  const livePrices = useLivePrices();
+
+  const stocks = useMemo(() => baseStocks.map(s => {
+    const live = livePrices[String(s.ticker).toUpperCase()];
+    if (!live) return s;
+    return {
+      ...s,
+      price: live.price || s.price,
+      change: live.change ?? s.change,
+      changePct: live.changePct ?? s.changePct,
+      volume: live.volume || s.volume,
+    };
+  }), [baseStocks, livePrices]);
   const [history, setHistory] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
@@ -64,7 +78,7 @@ export default function TradePage() {
   useEffect(() => {
     getStocks()
       .then(list => {
-        setStocks(list);
+        setBaseStocks(list);
         if (list.length > 0) {
           const match = initialTicker && list.find(s => s.ticker === initialTicker);
           setTicker(match ? match.ticker : list[0].ticker);
