@@ -165,7 +165,8 @@ export default function TradePage() {
       });
       setConfirmation(order);
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Order failed.';
+      const raw = e?.response?.data?.error || e?.response?.data?.message;
+      const msg = raw || 'Order could not be placed. Please try again.';
       setError(msg);
     } finally {
       setSubmitting(false);
