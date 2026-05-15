@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill } from '../components/shared/dark-ui';
 import { getMyTransactions } from '../api/transactions';
+import { useNotifications } from '../hooks/useNotifications';
 
 const STATUS_TONE = {
   PENDING:          { label: 'Pending',          color: D.warn,   bg: 'rgba(251,191,36,0.12)'  },
@@ -109,16 +110,22 @@ export default function OrdersPage() {
   const [selected, setSelected] = useState(null);
   const [side, setSide] = useState('all');
 
-  useEffect(() => {
+  const fetchTransactions = useCallback(() => {
     getMyTransactions()
       .then(data => {
         const list = Array.isArray(data) ? data : [];
         setTransactions(list);
-        if (list.length > 0) setSelected(list[0].transactionId);
+        if (list.length > 0) setSelected(prev => prev ?? list[0].transactionId);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
+
+  useNotifications((msg) => {
+    if (msg?.type === 'ORDER_UPDATE') fetchTransactions();
+  });
 
   const today = new Date().toDateString();
 
