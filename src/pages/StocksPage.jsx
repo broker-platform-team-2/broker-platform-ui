@@ -180,18 +180,6 @@ export default function StocksPage() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 6, marginTop: 18, marginBottom: 8 }}>
-              {['1D', '1W', '1M', '3M', 'YTD', '1Y', 'ALL'].map(r => (
-                <button key={r} onClick={() => setRange(r)} style={{
-                  background: range === r ? D.sage : 'transparent',
-                  border: `1px solid ${range === r ? D.sage : D.hairline}`,
-                  color: range === r ? D.plumDeep : D.ink70,
-                  padding: '5px 12px', borderRadius: 7,
-                  fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT_BODY,
-                }}>{r}</button>
-              ))}
-            </div>
-
             <div style={{ marginTop: 6, marginLeft: -8, marginRight: -8, position: 'relative' }}>
               <AreaChart data={[...chartPrices, ...prediction.slice(1)]} height={240} color={stock.changePct >= 0 ? D.sage : D.sell}/>
               <div style={{
@@ -205,91 +193,42 @@ export default function StocksPage() {
             </div>
           </Card>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: 16 }}>
-            <Card padding={22}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 18 }}>
-                <KPI label="Open" value={`$${(stock.price - (stock.change || 0)).toFixed(2)}`}/>
-                <KPI label="Day high" value={`$${(stock.price * 1.012).toFixed(2)}`}/>
-                <KPI label="Day low" value={`$${(stock.price * 0.987).toFixed(2)}`}/>
-                <KPI label="Volume" value={stock.volume > 0 ? `${(stock.volume / 1000).toFixed(1)}k` : '—'}/>
-                <KPI label="Mkt cap" value={stock.mcap && stock.mcap !== '—' ? `$${stock.mcap}` : '—'}/>
-                <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
-                <KPI label="P/E" value="—"/>
-                <KPI label="52w range" value={`$${(stock.price * 0.6).toFixed(0)}–${(stock.price * 1.4).toFixed(0)}`}/>
-              </div>
+          <Card padding={22}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 18, marginBottom: 18 }}>
+              <KPI label="Open" value={`$${(stock.price - (stock.change || 0)).toFixed(2)}`}/>
+              <KPI label="Day high" value={`$${(stock.price * 1.012).toFixed(2)}`}/>
+              <KPI label="Day low" value={`$${(stock.price * 0.987).toFixed(2)}`}/>
+              <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
+              <KPI label="52w range" value={`$${(stock.price * 0.6).toFixed(0)}–${(stock.price * 1.4).toFixed(0)}`}/>
+            </div>
 
+            <div style={{
+              background: `linear-gradient(135deg, ${D.surface2}, ${D.surface3})`,
+              borderRadius: 14, padding: 16, display: 'flex', gap: 16, alignItems: 'center',
+            }}>
               <div style={{
-                background: `linear-gradient(135deg, ${D.surface2}, ${D.surface3})`,
-                borderRadius: 14, padding: 16, display: 'flex', gap: 16, alignItems: 'center',
+                width: 44, height: 44, borderRadius: 12, background: 'rgba(168,214,112,0.16)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 12, background: 'rgba(168,214,112,0.16)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}>
-                  <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                    <path d="M3 16l5-5 3 3 6-8" stroke={D.spring} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <circle cx="17" cy="6" r="2" stroke={D.spring} strokeWidth="1.5"/>
-                  </svg>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>Algorithmic forecast · 7-day</div>
-                  <div style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
-                    Target <span style={{ color: D.spring }}>${(stock.price * (1 + (stock.changePct || 0) / 100 * 1.5)).toFixed(2)}</span>
-                    <span style={{ color: D.ink50, fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· 71% confidence</span>
-                  </div>
-                </div>
-                <a href={`/trade?ticker=${stock.ticker}`} style={{
-                  background: D.spring, border: 'none', color: D.plumDeep,
-                  padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: FONT_BODY, textDecoration: 'none',
-                }}>Trade now</a>
+                <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                  <path d="M3 16l5-5 3 3 6-8" stroke={D.spring} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="17" cy="6" r="2" stroke={D.spring} strokeWidth="1.5"/>
+                </svg>
               </div>
-            </Card>
-
-            <Card padding={0}>
-              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${D.hairline}` }}>
-                <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, color: D.ink, letterSpacing: '-0.01em' }}>Order book</div>
-                <div style={{ fontSize: 11, color: D.ink50, marginTop: 2 }}>Top 7 bids & asks · live</div>
-              </div>
-
-              {!liveBook ? (
-                <div style={{ padding: '32px 18px', textAlign: 'center', color: D.ink50, fontSize: 12 }}>
-                  Fetching order book…
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>Algorithmic forecast · 7-day</div>
+                <div style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
+                  Target <span style={{ color: D.spring }}>${(stock.price * (1 + (stock.changePct || 0) / 100 * 1.5)).toFixed(2)}</span>
+                  <span style={{ color: D.ink50, fontSize: 13, fontWeight: 400, marginLeft: 8 }}></span>
                 </div>
-              ) : (
-                <>
-                  <div style={{ padding: '8px 18px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: 10.5, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
-                    <div>Bid</div><div style={{ textAlign: 'center' }}>Qty</div><div style={{ textAlign: 'right' }}>Ask</div>
-                  </div>
-
-                  {liveBook.bids.map((b, i) => {
-                    const a = liveBook.asks[i];
-                    if (!a) return null;
-                    return (
-                      <div key={i} style={{
-                        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
-                        fontSize: 12, fontVariantNumeric: 'tabular-nums',
-                        padding: '5px 18px', position: 'relative', alignItems: 'center',
-                      }}>
-                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(b.qty / maxQty) * 50}%`, maxWidth: '50%', background: D.buyBg, opacity: 0.6 }}/>
-                        <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: `${(a.qty / maxQty) * 50}%`, maxWidth: '50%', background: D.sellBg, opacity: 0.6 }}/>
-                        <div style={{ color: D.buy, fontWeight: 600, position: 'relative' }}>${b.price.toFixed(2)}</div>
-                        <div style={{ textAlign: 'center', color: D.ink70, position: 'relative' }}>{(b.qty + a.qty).toLocaleString()}</div>
-                        <div style={{ textAlign: 'right', color: D.sell, fontWeight: 600, position: 'relative' }}>${a.price.toFixed(2)}</div>
-                      </div>
-                    );
-                  })}
-
-                  <div style={{ borderTop: `1px solid ${D.hairline}`, padding: '12px 18px', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: D.surface2 }}>
-                    <div style={{ fontSize: 11, color: D.ink50 }}>Spread</div>
-                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
-                      ${(liveBook.asks[0].price - liveBook.bids[0].price).toFixed(2)}
-                    </div>
-                  </div>
-                </>
-              )}
-            </Card>
-          </div>
+              </div>
+              <a href={`/trade?ticker=${stock.ticker}`} style={{
+                background: D.spring, border: 'none', color: D.plumDeep,
+                padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                fontFamily: FONT_BODY, textDecoration: 'none',
+              }}>Trade now</a>
+            </div>
+          </Card>
         </div>
       </div>
     </AppShell>
