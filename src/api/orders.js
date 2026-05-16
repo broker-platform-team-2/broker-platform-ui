@@ -1,8 +1,8 @@
 import { api } from './client';
 
-export async function placeOrder({ instrumentType, instrumentId, orderType, side, quantity, limitPrice, expiresAt }) {
+export async function placeOrder({ instrumentType, instrumentId, orderType, side, quantity, limitPrice, expiresAt, currency }) {
   const { data } = await api.post('/orders', {
-    instrumentType, instrumentId, orderType, side, quantity, limitPrice, expiresAt,
+    instrumentType, instrumentId, orderType, side, quantity, limitPrice, expiresAt, currency,
   });
   return data;
 }

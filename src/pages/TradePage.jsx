@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
-import { Card, Pill, Money, Delta, AreaChart, KPI, genSeries, seedRand } from '../components/shared/dark-ui';
-import { STOCKS } from '../data/mockMarket';
+import { Card, Pill, Money, Delta, AreaChart, KPI } from '../components/shared/dark-ui';
+import { getStocks, getStockHistory } from '../api/market';
 import { placeOrder } from '../api/orders';
 import { getMyHoldings } from '../api/holdings';
 import { useAccount } from '../context/AccountContext';
-import { fromEUR, getRate } from '../data/exchangeRates';
+import { useLivePrices } from '../context/NotificationsContext';
+import { fromUSD, getRate } from '../data/exchangeRates';
 
 const SYMBOLS = {
   EUR: '€',  USD: '$',   GBP: '£',   CHF: 'CHF ', JPY: '¥',
@@ -41,14 +42,30 @@ const stepBtn = {
 
 export default function TradePage() {
   const [searchParams] = useSearchParams();
-  const initialTicker = searchParams.get('ticker') || 'ZEDA';
+  const initialTicker = searchParams.get('ticker');
 
   const [side, setSide] = useState('BUY');
   const [orderType, setOrderType] = useState('MARKET');
-  const [ticker, setTicker] = useState(initialTicker);
+  const [ticker, setTicker] = useState(initialTicker || null);
   const [qty, setQty] = useState(10);
   const [limitPrice, setLimitPrice] = useState(null);
   const [tif, setTif] = useState('GTC');
+  const [baseStocks, setBaseStocks] = useState([]);
+  const [loadingStocks, setLoadingStocks] = useState(true);
+  const livePrices = useLivePrices();
+
+  const stocks = useMemo(() => baseStocks.map(s => {
+    const live = livePrices[String(s.ticker).toUpperCase()];
+    if (!live) return s;
+    return {
+      ...s,
+      price: live.price || s.price,
+      change: live.change ?? s.change,
+      changePct: live.changePct ?? s.changePct,
+      volume: live.volume || s.volume,
+    };
+  }), [baseStocks, livePrices]);
+  const [history, setHistory] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
   const [error, setError] = useState('');
@@ -59,18 +76,56 @@ export default function TradePage() {
   const [holdings, setHoldings] = useState([]);
 
   useEffect(() => {
+    getStocks()
+      .then(list => {
+        setBaseStocks(list);
+        if (list.length > 0) {
+          const match = initialTicker && list.find(s => s.ticker === initialTicker);
+          setTicker(match ? match.ticker : list[0].ticker);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingStocks(false));
+  }, []);
+
+  useEffect(() => {
+    if (!ticker) return;
+    setHistory(null);
+    getStockHistory(ticker, '1D').then(h => { if (h.length) setHistory(h); }).catch(() => {});
+  }, [ticker]);
+
+  useEffect(() => {
     getMyHoldings().then(h => setHoldings(h || [])).catch(() => {});
   }, [confirmation]);
 
-  // Close picker when clicking outside
   useEffect(() => {
     const handler = (e) => { if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false); };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const stock = STOCKS.find(s => s.ticker === ticker);
-  const holding = holdings.find(h => (h.instrumentId || h.ticker) === ticker && (h.instrumentType || h.type) === 'STOCK');
+  if (loadingStocks) {
+    return (
+      <AppShell title="Trade" subtitle="Loading…">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: D.ink50, fontSize: 14 }}>
+          Fetching market data…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (stocks.length === 0) {
+    return (
+      <AppShell title="Trade" subtitle="Exchange unavailable">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: D.ink50, fontSize: 14 }}>
+          No instruments available. Ensure the exchange is running.
+        </div>
+      </AppShell>
+    );
+  }
+
+  const stock = stocks.find(s => s.ticker === ticker) || stocks[0];
+  const holding = holdings.find(h => (h.instrumentId || h.ticker) === stock.ticker && (h.instrumentType || h.type) === 'STOCK');
 
   const execPrice = orderType === 'MARKET' ? stock.price : (limitPrice ?? stock.price);
   const fee = Math.max(1.0, qty * execPrice * 0.0008);
@@ -78,37 +133,21 @@ export default function TradePage() {
   const proceeds = qty * execPrice - fee;
 
   const availBalance = Number(activeAccount?.balance || 0);
-  const activeCurrency = activeAccount?.currency || 'EUR';
+  const activeCurrency = activeAccount?.currency || 'USD';
   const activeSym = SYMBOLS[activeCurrency] || `${activeCurrency} `;
   const ownedQty = Number(holding?.amount || 0);
 
-  // Currency conversion: stocks are priced in EUR; convert to account currency for affordability
-  const needsConversion = activeCurrency !== 'EUR';
-  const fxRate = getRate(activeCurrency); // 1 EUR = fxRate activeCurrency
-  const totalInAccountCurrency = needsConversion ? fromEUR(side === 'BUY' ? total : proceeds, activeCurrency) : (side === 'BUY' ? total : proceeds);
-  const feeInAccountCurrency = needsConversion ? fromEUR(fee, activeCurrency) : fee;
+  const needsConversion = activeCurrency !== 'USD';
+  const fxRate = getRate(activeCurrency);
+  const totalInAccountCurrency = needsConversion ? fromUSD(side === 'BUY' ? total : proceeds, activeCurrency) : (side === 'BUY' ? total : proceeds);
+  const feeInAccountCurrency = needsConversion ? fromUSD(fee, activeCurrency) : fee;
 
   const canAfford = side === 'BUY' ? totalInAccountCurrency <= availBalance : true;
   const canSell = side === 'SELL' ? qty <= ownedQty : true;
   const valid = qty > 0 && canAfford && canSell;
 
-  const recentTrades = useMemo(() => {
-    const r = seedRand(stock.ticker.charCodeAt(0));
-    const out = [];
-    let p = stock.price;
-    for (let i = 0; i < 10; i++) {
-      p = p + (r() - 0.5) * stock.volatility * stock.price * 0.3;
-      out.push({
-        time: `14:${String(42 - i).padStart(2, '0')}:${String(Math.floor(r() * 60)).padStart(2, '0')}`,
-        price: +p.toFixed(2),
-        qty: Math.floor(r() * 200 + 20),
-        side: r() > 0.5 ? 'BUY' : 'SELL',
-      });
-    }
-    return out;
-  }, [stock]);
-
-  const series = useMemo(() => genSeries(stock.ticker.charCodeAt(0) * 7, 60, stock.price * 0.9, stock.volatility), [stock]);
+  // Chart: real history or flat baseline at current price
+  const chartData = history?.length ? history : new Array(10).fill(stock.price);
 
   async function submit() {
     setSubmitting(true);
@@ -117,16 +156,18 @@ export default function TradePage() {
     try {
       const order = await placeOrder({
         instrumentType: 'STOCK',
-        instrumentId: ticker,
+        instrumentId: stock.ticker,
         orderType,
         side,
         quantity: qty,
         limitPrice: orderType === 'LIMIT' ? Number(limitPrice ?? stock.price) : null,
         expiresAt: null,
+        currency: activeCurrency,
       });
       setConfirmation(order);
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Order failed.';
+      const raw = e?.response?.data?.error || e?.response?.data?.message;
+      const msg = raw || 'Order could not be placed. Please try again.';
       setError(msg);
     } finally {
       setSubmitting(false);
@@ -147,31 +188,31 @@ export default function TradePage() {
                   fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, color: D.ink, letterSpacing: 0.2,
                 }}>{stock.ticker.slice(0, 4)}</div>
                 <div>
-                  <select value={ticker} onChange={(e) => setTicker(e.target.value)} style={{
+                  <select value={stock.ticker} onChange={(e) => setTicker(e.target.value)} style={{
                     background: 'transparent', border: 'none',
                     fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 22, color: D.ink, letterSpacing: '-0.01em',
                     cursor: 'pointer', appearance: 'none', paddingRight: 24,
                   }}>
-                    {STOCKS.map(s => <option key={s.ticker} value={s.ticker} style={{ background: D.surface2, color: D.ink }}>{s.ticker}</option>)}
+                    {stocks.map(s => <option key={s.ticker} value={s.ticker} style={{ background: D.surface2, color: D.ink }}>{s.ticker}</option>)}
                   </select>
                   <div style={{ fontSize: 13, color: D.ink50, marginTop: 2 }}>{stock.name} · {stock.sector}</div>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <Money value={stock.price} currency="EUR" big/>
+                <Money value={stock.price} currency="USD" big/>
                 <div style={{ marginTop: 4 }}><Delta value={stock.change} pct={stock.changePct}/></div>
               </div>
             </div>
 
             <div style={{ marginLeft: -8, marginRight: -8 }}>
-              <AreaChart data={series} height={140} color={stock.changePct >= 0 ? D.sage : D.sell}/>
+              <AreaChart data={chartData} height={140} color={stock.changePct >= 0 ? D.sage : D.sell}/>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginTop: 18, paddingTop: 18, borderTop: `1px solid ${D.hairline}` }}>
-              <KPI label="Bid" value={`€${(stock.price - 0.05).toFixed(2)}`}/>
-              <KPI label="Ask" value={`€${(stock.price + 0.05).toFixed(2)}`}/>
-              <KPI label="Volume" value={`${(stock.volume / 1000).toFixed(1)}k`}/>
-              <KPI label="Volatility" value={`${(stock.volatility * 100).toFixed(1)}%`}/>
+              <KPI label="Bid" value={stock.price > 0 ? `$${(stock.price - 0.05).toFixed(2)}` : '—'}/>
+              <KPI label="Ask" value={stock.price > 0 ? `$${(stock.price + 0.05).toFixed(2)}` : '—'}/>
+              <KPI label="Volume" value={stock.volume > 0 ? `${(stock.volume / 1000).toFixed(1)}k` : '—'}/>
+              <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
             </div>
           </Card>
 
@@ -179,36 +220,16 @@ export default function TradePage() {
             <div style={{ padding: '16px 22px', borderBottom: `1px solid ${D.hairline}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15, color: D.ink, letterSpacing: '-0.01em' }}>Time & sales</div>
-                <div style={{ fontSize: 11.5, color: D.ink50, marginTop: 2 }}>Last 10 matched trades on {ticker}</div>
+                <div style={{ fontSize: 11.5, color: D.ink50, marginTop: 2 }}>Last matched trades on {stock.ticker}</div>
               </div>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: D.spring }}>
                 <span style={{ width: 6, height: 6, borderRadius: 3, background: D.spring, boxShadow: `0 0 6px ${D.spring}` }}/>
                 Live feed
               </span>
             </div>
-            <div style={{
-              display: 'grid', gridTemplateColumns: '90px 1fr 1fr 80px',
-              padding: '8px 22px',
-              fontSize: 10.5, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600,
-              borderBottom: `1px solid ${D.hairline}`,
-            }}>
-              <div>Time</div><div>Price</div><div>Qty</div><div style={{ textAlign: 'right' }}>Side</div>
+            <div style={{ padding: '32px 22px', textAlign: 'center', color: D.ink50, fontSize: 12 }}>
+              Trade feed arrives via WebSocket — connect to see live fills.
             </div>
-            {recentTrades.map((t, i) => (
-              <div key={i} style={{
-                display: 'grid', gridTemplateColumns: '90px 1fr 1fr 80px',
-                padding: '8px 22px', alignItems: 'center',
-                fontFamily: FONT_BODY, fontSize: 12.5, fontVariantNumeric: 'tabular-nums',
-                borderBottom: i === recentTrades.length - 1 ? 'none' : `1px solid ${D.hairline}`,
-              }}>
-                <div style={{ color: D.ink50 }}>{t.time}</div>
-                <div style={{ color: t.side === 'BUY' ? D.buy : D.sell, fontWeight: 600 }}>€{t.price.toFixed(2)}</div>
-                <div style={{ color: D.ink70 }}>{t.qty}</div>
-                <div style={{ textAlign: 'right' }}>
-                  <Pill color={t.side === 'BUY' ? D.buy : D.sell} bg={t.side === 'BUY' ? D.buyBg : D.sellBg}>{t.side}</Pill>
-                </div>
-              </div>
-            ))}
           </Card>
         </div>
 
@@ -220,21 +241,18 @@ export default function TradePage() {
               background: side === 'BUY' ? D.buy : 'transparent',
               border: `1px solid ${side === 'BUY' ? D.buy : D.hairline2}`,
               color: side === 'BUY' ? D.plumDeep : D.ink70,
-              borderRadius: 10, fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              letterSpacing: '-0.01em',
+              borderRadius: 10, fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, cursor: 'pointer', letterSpacing: '-0.01em',
             }}>Buy</button>
             <button onClick={() => setSide('SELL')} style={{
               padding: '12px',
               background: side === 'SELL' ? D.sell : 'transparent',
               border: `1px solid ${side === 'SELL' ? D.sell : D.hairline2}`,
               color: side === 'SELL' ? '#fff' : D.ink70,
-              borderRadius: 10, fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              letterSpacing: '-0.01em',
+              borderRadius: 10, fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, cursor: 'pointer', letterSpacing: '-0.01em',
             }}>Sell</button>
           </div>
 
           <div style={{ padding: '0 16px 16px' }}>
-            {/* Account selector */}
             <Label>Funding account</Label>
             <div ref={pickerRef} style={{ position: 'relative', marginBottom: 16 }}>
               <button
@@ -246,61 +264,37 @@ export default function TradePage() {
                   borderRadius: pickerOpen ? '9px 9px 0 0' : 9,
                   padding: '10px 12px',
                   display: 'flex', alignItems: 'center', gap: 10,
-                  fontFamily: FONT_BODY,
-                  transition: 'border-color 0.15s',
+                  fontFamily: FONT_BODY, transition: 'border-color 0.15s',
                 }}
               >
-                <div style={{
-                  background: D.sageBg, borderRadius: 6, padding: '3px 8px',
-                  fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12, color: D.sage, flexShrink: 0,
-                }}>{activeCurrency}</div>
+                <div style={{ background: D.sageBg, borderRadius: 6, padding: '3px 8px', fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12, color: D.sage, flexShrink: 0 }}>{activeCurrency}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
                     {activeSym}{availBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>Available to trade</div>
                 </div>
-                <span style={{
-                  color: D.ink50, fontSize: 11,
-                  display: 'inline-block',
-                  transform: pickerOpen ? 'rotate(180deg)' : 'none',
-                  transition: 'transform 0.15s',
-                }}>▾</span>
+                <span style={{ color: D.ink50, fontSize: 11, display: 'inline-block', transform: pickerOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▾</span>
               </button>
 
               {pickerOpen && (
                 <div style={{
                   position: 'absolute', left: 0, right: 0, zIndex: 50,
-                  background: D.surface2,
-                  border: `1px solid ${D.sage}`,
-                  borderTop: 'none',
-                  borderRadius: '0 0 9px 9px',
-                  overflow: 'hidden',
+                  background: D.surface2, border: `1px solid ${D.sage}`,
+                  borderTop: 'none', borderRadius: '0 0 9px 9px', overflow: 'hidden',
                 }}>
                   {accounts.map((a, i) => {
                     const isSel = String(a.accountId) === String(activeId);
                     const bal = Number(a.balance) || 0;
                     const sym = SYMBOLS[a.currency] || `${a.currency} `;
                     return (
-                      <button
-                        key={a.accountId}
-                        onClick={() => { setActiveId(a.accountId); setPickerOpen(false); }}
-                        style={{
-                          width: '100%', textAlign: 'left', cursor: 'pointer',
-                          background: isSel ? D.sageBg : 'transparent',
-                          border: 'none',
-                          borderBottom: i < accounts.length - 1 ? `1px solid ${D.hairline}` : 'none',
-                          padding: '10px 12px',
-                          display: 'flex', alignItems: 'center', gap: 10,
-                          fontFamily: FONT_BODY,
-                        }}
-                      >
-                        <div style={{
-                          background: isSel ? D.sageBg : D.surface3,
-                          borderRadius: 6, padding: '3px 8px',
-                          fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12,
-                          color: isSel ? D.sage : D.ink50, flexShrink: 0,
-                        }}>{a.currency}</div>
+                      <button key={a.accountId} onClick={() => { setActiveId(a.accountId); setPickerOpen(false); }} style={{
+                        width: '100%', textAlign: 'left', cursor: 'pointer',
+                        background: isSel ? D.sageBg : 'transparent',
+                        border: 'none', borderBottom: i < accounts.length - 1 ? `1px solid ${D.hairline}` : 'none',
+                        padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, fontFamily: FONT_BODY,
+                      }}>
+                        <div style={{ background: isSel ? D.sageBg : D.surface3, borderRadius: 6, padding: '3px 8px', fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12, color: isSel ? D.sage : D.ink50, flexShrink: 0 }}>{a.currency}</div>
                         <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
                           {sym}{bal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
@@ -341,9 +335,8 @@ export default function TradePage() {
                 <button key={v} onClick={() => {
                   if (v === 'Max') {
                     if (side === 'BUY' && execPrice > 0) {
-                      // Convert available balance to EUR first, then divide by price
-                      const availableInEUR = needsConversion ? availBalance / fxRate : availBalance;
-                      setQty(Math.floor(availableInEUR / execPrice));
+                      const availableInUSD = needsConversion ? availBalance / fxRate : availBalance;
+                      setQty(Math.floor(availableInUSD / execPrice));
                     } else if (side === 'SELL') setQty(ownedQty);
                   } else setQty(v);
                 }} style={{
@@ -361,7 +354,7 @@ export default function TradePage() {
                   background: D.surface2, border: `1px solid ${D.hairline}`,
                   borderRadius: 9, padding: '10px 12px', marginBottom: 6,
                 }}>
-                  <span style={{ color: D.ink50, fontFamily: FONT_HEAD, fontWeight: 600 }}>€</span>
+                  <span style={{ color: D.ink50, fontFamily: FONT_HEAD, fontWeight: 600 }}>$</span>
                   <input type="number" step="0.01" value={limitPrice ?? ''} placeholder={stock.price.toFixed(2)}
                     onChange={(e) => setLimitPrice(e.target.value ? +e.target.value : null)}
                     style={{
@@ -370,13 +363,13 @@ export default function TradePage() {
                     }}/>
                 </div>
                 <div style={{ marginBottom: 16, fontSize: 11, color: D.ink50 }}>
-                  Mid <span style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>€{stock.price.toFixed(2)}</span>
-                  {' · '}Spread <span style={{ color: D.ink70 }}>€0.10</span>
+                  Mid <span style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>${stock.price.toFixed(2)}</span>
+                  {' · '}Spread <span style={{ color: D.ink70 }}>$0.10</span>
                 </div>
 
                 <Label>Time in force</Label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 16 }}>
-                  {[['GTC', 'Good ‘til cancel'], ['DAY', 'Day only'], ['IOC', 'Immediate']].map(([v, l]) => (
+                  {[['GTC', "Good 'til cancel"], ['DAY', 'Day only'], ['IOC', 'Immediate']].map(([v, l]) => (
                     <button key={v} onClick={() => setTif(v)} title={l} style={{
                       padding: '8px',
                       background: tif === v ? D.surface3 : 'transparent',
@@ -389,25 +382,22 @@ export default function TradePage() {
               </>
             )}
 
-            <div style={{
-              background: D.surface2, borderRadius: 12, padding: 14, marginTop: 4, marginBottom: 12,
-              border: `1px solid ${D.hairline}`,
-            }}>
+            <div style={{ background: D.surface2, borderRadius: 12, padding: 14, marginTop: 4, marginBottom: 12, border: `1px solid ${D.hairline}` }}>
               <SummaryRow label={`${activeCurrency} available`} value={`${activeSym}${availBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
               <div style={{ height: 1, background: D.hairline, margin: '8px 0' }}/>
-              <SummaryRow label="Estimated price" value={orderType === 'MARKET' ? `€${stock.price.toFixed(2)} (mkt)` : `€${execPrice.toFixed(2)}`}/>
-              <SummaryRow label="Subtotal" value={`€${(qty * execPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
+              <SummaryRow label="Estimated price" value={orderType === 'MARKET' ? `$${stock.price.toFixed(2)} (mkt)` : `$${execPrice.toFixed(2)}`}/>
+              <SummaryRow label="Subtotal" value={`$${(qty * execPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
               <SummaryRow
                 label="Platform fee · 0.08%"
                 value={needsConversion
                   ? `${activeSym}${feeInAccountCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : `€${fee.toFixed(2)}`}
+                  : `$${fee.toFixed(2)}`}
                 hint={<span style={{ color: D.spring }}>→ microloans</span>}
               />
               {needsConversion && (
                 <SummaryRow
                   label="Exchange rate"
-                  value={`1 EUR = ${fxRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${activeCurrency}`}
+                  value={`1 USD = ${fxRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${activeCurrency}`}
                   hint={<span style={{ color: D.ink50, fontSize: 10 }}>indicative</span>}
                 />
               )}
@@ -419,7 +409,7 @@ export default function TradePage() {
               />
               {needsConversion && (
                 <div style={{ fontSize: 11, color: D.ink50, marginTop: 6, lineHeight: 1.4 }}>
-                  ≈ €{(side === 'BUY' ? total : proceeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · converted automatically at execution
+                  ≈ ${(side === 'BUY' ? total : proceeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD · debited from your {activeCurrency} account at this rate
                 </div>
               )}
             </div>
@@ -431,7 +421,7 @@ export default function TradePage() {
             )}
             {!canSell && side === 'SELL' && (
               <div style={{ background: D.sellBg, color: D.sell, padding: '10px 12px', borderRadius: 9, fontSize: 12, marginBottom: 12, border: `1px solid ${D.sell}33` }}>
-                ⚠ You hold {ownedQty} {ticker}. Cannot sell {qty}.
+                ⚠ You hold {ownedQty} {stock.ticker}. Cannot sell {qty}.
               </div>
             )}
             {error && (
@@ -444,7 +434,7 @@ export default function TradePage() {
                 ✓ Order placed · status {confirmation.status || 'PENDING'}
                 {needsConversion && (
                   <div style={{ marginTop: 4, color: D.sage, opacity: 0.8 }}>
-                    {activeSym}{totalInAccountCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeCurrency} will be {side === 'BUY' ? 'deducted' : 'credited'} after conversion
+                    {activeSym}{totalInAccountCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeCurrency} will be {side === 'BUY' ? 'deducted from' : 'credited to'} your {activeCurrency} account
                   </div>
                 )}
               </div>

@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
 import { useAuth } from '../../context/AuthContext';
 import { useAccount } from '../../context/AccountContext';
+import { useNotificationsContext } from '../../context/NotificationsContext';
 
 const NAV = [
   { id: 'home',   label: 'Home',    icon: 'home',   path: '/home' },
@@ -12,6 +13,7 @@ const NAV = [
   { id: 'orders', label: 'Orders',  icon: 'list',   path: '/orders' },
   { id: 'wallet', label: 'Wallet',  icon: 'wallet', path: '/wallet' },
 ];
+
 
 const NavIcon = ({ name }) => {
   const p = { width: 18, height: 18, viewBox: '0 0 18 18', fill: 'none' };
@@ -25,7 +27,7 @@ const NavIcon = ({ name }) => {
   return null;
 };
 
-const Sidebar = () => {
+const Sidebar = ({ marketStatus }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout } = useAuth();
@@ -75,11 +77,20 @@ const Sidebar = () => {
         border: `1px solid ${D.hairline}`,
       }}>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Market</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: D.sage, boxShadow: `0 0 8px ${D.sage}` }}/>
-          <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: D.ink }}>Open</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          {marketStatus == null ? (
+            <span style={{ width: 8, height: 8, borderRadius: 4, background: D.ink30 }}/>
+          ) : (
+            <span style={{
+              width: 8, height: 8, borderRadius: 4,
+              background: marketStatus.isOpen ? D.sage : D.sell,
+              boxShadow: marketStatus.isOpen ? `0 0 8px ${D.sage}` : `0 0 8px ${D.sell}`,
+            }}/>
+          )}
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: D.ink }}>
+            {marketStatus == null ? '…' : marketStatus.isOpen ? 'Open' : 'Closed'}
+          </span>
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: D.ink50, lineHeight: 1.4 }}>Closes 17:00 · Sim 60×</div>
       </div>
 
       <button onClick={logout} style={{
@@ -92,6 +103,33 @@ const Sidebar = () => {
   );
 };
 
+function noteColor(type) {
+  if (type === 'ORDER_UPDATE') return D.buy;
+  if (type === 'MARKET_EVENT') return D.warn;
+  if (type === 'PRICE_UPDATE') return D.teal;
+  return D.ink50;
+}
+
+function noteText(n) {
+  const p = n.payload ?? n.data ?? n;
+  if (n.type === 'ORDER_UPDATE') {
+    const id = p.order_id ?? p.orderId ?? '';
+    const status = p.status ?? '';
+    return `Order ${id ? '#' + id : ''} → ${status}`;
+  }
+  if (n.type === 'MARKET_EVENT') {
+    const headline = p.headline ?? p.message ?? p.event ?? '';
+    const kind = p.event_type ?? p.type ?? '';
+    return headline || kind || 'Market event';
+  }
+  if (n.type === 'PRICE_UPDATE') {
+    const ticker = p.ticker ?? p.symbol ?? '';
+    const price = p.current_price ?? p.price ?? '';
+    return `${ticker}${price ? ' @ $' + Number(price).toFixed(2) : ''}`;
+  }
+  return JSON.stringify(p).slice(0, 80);
+}
+
 const SYMBOLS = { EUR: '€', RON: 'lei ', USD: '$', GBP: '£', CHF: 'CHF ' };
 
 function formatAmount(amount, currency) {
@@ -102,10 +140,11 @@ function formatAmount(amount, currency) {
   return `${sym}${v}`;
 }
 
-const TopBar = ({ title, subtitle }) => {
+const TopBar = ({ title, subtitle, notifications, onClearNotifications }) => {
   const { user } = useAuth();
   const { activeAccount } = useAccount();
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : 'WB';
+  const [showNotes, setShowNotes] = useState(false);
 
   return (
     <header style={{
@@ -150,11 +189,60 @@ const TopBar = ({ title, subtitle }) => {
             </div>
           </div>
         )}
-        <button style={{
-          background: D.surface, border: `1px solid ${D.hairline}`, color: D.ink70,
-          width: 36, height: 36, borderRadius: 10, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}><NavIcon name="bell"/></button>
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setShowNotes(v => !v)}
+            style={{
+              background: D.surface, border: `1px solid ${D.hairline}`, color: D.ink70,
+              width: 36, height: 36, borderRadius: 10, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+            <NavIcon name="bell"/>
+            {notifications?.length > 0 && (
+              <span style={{
+                position: 'absolute', top: -3, right: -3,
+                width: 16, height: 16, borderRadius: 8,
+                background: D.sell, color: '#fff',
+                fontFamily: FONT_BODY, fontSize: 9, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{notifications.length > 9 ? '9+' : notifications.length}</span>
+            )}
+          </button>
+          {showNotes && (
+            <div style={{
+              position: 'absolute', top: 44, right: 0, zIndex: 200,
+              width: 320, maxHeight: 400, overflow: 'auto',
+              background: D.surface2, border: `1px solid ${D.hairline}`,
+              borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              padding: 8,
+            }}>
+              {notifications?.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px 4px' }}>
+                  <button onClick={onClearNotifications}
+                    style={{ background: 'transparent', border: 'none', color: D.ink50, fontFamily: FONT_BODY, fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}>
+                    Clear all
+                  </button>
+                </div>
+              )}
+              {(!notifications || notifications.length === 0) ? (
+                <div style={{ padding: '12px 16px', color: D.ink50, fontFamily: FONT_BODY, fontSize: 13 }}>
+                  No notifications
+                </div>
+              ) : notifications.slice().reverse().map((n, i) => (
+                <div key={i} style={{
+                  padding: '10px 14px', borderRadius: 10, marginBottom: 4,
+                  background: D.surface3, borderLeft: `3px solid ${noteColor(n.type)}`,
+                }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: noteColor(n.type), marginBottom: 2 }}>
+                    {n.type?.replace(/_/g, ' ')}
+                  </div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: D.ink70 }}>
+                    {noteText(n)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <Link to="/profile" title={user?.username || 'Profile'} style={{
           width: 36, height: 36, borderRadius: 18,
           background: `linear-gradient(135deg, ${D.sage}, ${D.teal})`,
@@ -167,17 +255,26 @@ const TopBar = ({ title, subtitle }) => {
   );
 };
 
-export const AppShell = ({ title, subtitle, children }) => (
-  <div style={{
-    display: 'flex', height: '100vh', width: '100%',
-    background: D.bg, color: D.ink, fontFamily: FONT_BODY,
-  }}>
-    <Sidebar/>
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <TopBar title={title} subtitle={subtitle}/>
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
-        {children}
+export const AppShell = ({ title, subtitle, children }) => {
+  const { marketStatus, notifications, setNotifications } = useNotificationsContext();
+
+  return (
+    <div style={{
+      display: 'flex', height: '100vh', width: '100%',
+      background: D.bg, color: D.ink, fontFamily: FONT_BODY,
+    }}>
+      <Sidebar marketStatus={marketStatus}/>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <TopBar
+          title={title}
+          subtitle={subtitle}
+          notifications={notifications}
+          onClearNotifications={() => setNotifications([])}
+        />
+        <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
+          {children}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};

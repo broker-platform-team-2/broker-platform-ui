@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, Sparkline, AreaChart, genSeries } from '../components/shared/dark-ui';
-import { findStock } from '../data/mockMarket';
+import { getStocks } from '../api/market';
 import { getMyHoldings } from '../api/holdings';
 import { getMyTransactions } from '../api/transactions';
 import { getMyAccounts } from '../api/accounts';
 import { useAuth } from '../context/AuthContext';
+import { useLivePrices } from '../context/NotificationsContext';
 
 const Stat = ({ label, value, tone }) => (
   <div>
@@ -40,6 +41,34 @@ export default function HomePage() {
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [baseStockMap, setBaseStockMap] = useState({});
+
+  const livePrices = useLivePrices();
+
+  // Overlay live PRICE_UPDATEs over the initial REST snapshot so portfolio
+  // valuations and any displayed prices keep pace with the exchange feed.
+  const stockMap = useMemo(() => {
+    const out = { ...baseStockMap };
+    for (const ticker of Object.keys(livePrices)) {
+      const live = livePrices[ticker];
+      const base = out[ticker];
+      if (!live) continue;
+      out[ticker] = {
+        ...(base || { ticker, name: ticker, sector: 'Other', volume: 0, mcap: '—', volatility: 0.03 }),
+        price: live.price || base?.price || 0,
+        change: live.change ?? base?.change ?? 0,
+        changePct: live.changePct ?? base?.changePct ?? 0,
+        volume: live.volume || base?.volume || 0,
+      };
+    }
+    return out;
+  }, [baseStockMap, livePrices]);
+
+  useEffect(() => {
+    getStocks()
+      .then(list => { if (list.length > 0) setBaseStockMap(Object.fromEntries(list.map(s => [s.ticker, s]))); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -62,7 +91,7 @@ export default function HomePage() {
       .filter(h => (h.instrumentType || h.type) === 'STOCK')
       .map(h => {
         const ticker = h.instrumentId || h.ticker;
-        const stock = findStock(ticker);
+        const stock = stockMap[ticker];
         const amount = Number(h.amount || 0);
         const avgCost = Number(h.averageCost ?? h.avgCost ?? 0);
         const value = amount * (stock?.price ?? avgCost);
@@ -75,18 +104,16 @@ export default function HomePage() {
     const totalPnl = totalValue - totalCost;
     const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
     return { rows, totalValue, totalCost, totalPnl, totalPnlPct };
-  }, [holdings]);
+  }, [holdings, stockMap]);
 
   const portfolioSeries = useMemo(
     () => genSeries(42, 80, 100, 0.025).map(v => v * Math.max(1, portfolio.totalValue) / 100),
     [portfolio.totalValue]
   );
 
-  // For the "Cash" stat in the profile card, show the EUR account specifically
-  // (it's a small number, can't fit multi-currency). Primary = EUR if it exists.
-  const primary = accounts.find(a => a.currency === 'EUR') || accounts[0];
+  const primary = accounts.find(a => a.currency === 'USD') || accounts[0];
   const primaryAvailable = Number(primary?.balance ?? 0);
-  const primaryCurrency = primary?.currency || 'EUR';
+  const primaryCurrency = primary?.currency || 'USD';
 
 
   return (
@@ -108,7 +135,7 @@ export default function HomePage() {
             <div>
               <div style={{ fontSize: 12, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Portfolio Value</div>
               <div style={{ marginTop: 8 }}>
-                <Money value={portfolio.totalValue} currency="EUR" big/>
+                <Money value={portfolio.totalValue} currency="USD" big/>
               </div>
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Delta value={portfolio.totalPnl} pct={portfolio.totalPnlPct}/>
@@ -234,17 +261,17 @@ export default function HomePage() {
                 </div>
               </div>
               <div style={{ color: D.ink, fontVariantNumeric: 'tabular-nums' }}>{row.amount}</div>
-              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>€{row.avgCost.toFixed(2)}</div>
+              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>${row.avgCost.toFixed(2)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>€{(row.stock?.price ?? row.avgCost).toFixed(2)}</span>
+                <span style={{ color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>${(row.stock?.price ?? row.avgCost).toFixed(2)}</span>
                 <Sparkline data={genSeries(row.ticker.charCodeAt(0) + i * 17, 24, 100, row.stock?.volatility || 0.03)} width={56} height={20}/>
               </div>
               <div style={{ textAlign: 'right', color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                €{row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: row.pnl >= 0 ? D.buy : D.sell, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                  {row.pnl >= 0 ? '+' : '−'}€{Math.abs(row.pnl).toFixed(2)}
+                  {row.pnl >= 0 ? '+' : '−'}${Math.abs(row.pnl).toFixed(2)}
                 </div>
                 <div style={{ fontSize: 11, color: row.pnl >= 0 ? D.buy : D.sell, opacity: 0.8 }}>
                   {row.pnl >= 0 ? '+' : '−'}{Math.abs(row.pnlPct).toFixed(2)}%
@@ -270,10 +297,10 @@ export default function HomePage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
               <Stat label="Trades" value={transactions.length}/>
-              <Stat label="Realised P&L" value={`€${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
+              <Stat label="Realised P&L" value={`$${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
               <Stat label="Holdings" value={portfolio.rows.length}/>
               <Stat label={`Cash · ${primaryCurrency}`} value={
-                primaryCurrency === 'EUR' ? `€${primaryAvailable.toFixed(0)}`
+                primaryCurrency === 'USD' ? `$${primaryAvailable.toFixed(0)}`
                 : primaryCurrency === 'RON' ? `lei ${primaryAvailable.toFixed(0)}`
                 : `${primaryAvailable.toFixed(0)} ${primaryCurrency}`
               }/>
@@ -319,11 +346,11 @@ export default function HomePage() {
               <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>
                 {qty} <span style={{ color: D.ink50 }}>shares</span>
               </div>
-              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>@ €{price.toFixed(2)}</div>
+              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>@ ${price.toFixed(2)}</div>
               <div><Pill color={sc.color} bg={sc.bg}>{status || 'PENDING'}</Pill></div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: D.ink, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                  €{(qty * price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${(qty * price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>
                   {tx.date ? new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—'}
