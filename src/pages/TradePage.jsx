@@ -68,6 +68,8 @@ export default function TradePage() {
   const [range, setRange] = useState('1D');
   const [history, setHistory] = useState([]);
   const [livePoints, setLivePoints] = useState([]);
+  const [timeSales, setTimeSales] = useState([]);
+  const timeSalesRef = useRef(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
   const [error, setError] = useState('');
@@ -94,15 +96,26 @@ export default function TradePage() {
     if (!ticker) return;
     setHistory([]);
     setLivePoints([]);
+    setTimeSales([]);
     getStockHistory(ticker, range).then(h => { if (h.length) setHistory(h); }).catch(() => {});
   }, [ticker, range]);
 
-  // Append each live PRICE_UPDATE tick for the selected stock to the chart
+  // Append each live PRICE_UPDATE tick for the selected stock to chart + time&sales
   useNotificationMessage((msg) => {
     if (msg?.type !== 'PRICE_UPDATE') return;
     if (String(msg.payload?.ticker).toUpperCase() !== String(ticker).toUpperCase()) return;
     const price = Number(msg.payload?.price);
-    if (price > 0) setLivePoints(prev => [...prev.slice(-500), price]);
+    const change = Number(msg.payload?.change ?? 0);
+    if (price <= 0) return;
+    setLivePoints(prev => [...prev.slice(-500), price]);
+    const entry = {
+      id: Date.now() + Math.random(),
+      time: msg.payload?.market_time ? new Date(msg.payload.market_time) : new Date(),
+      price,
+      change,
+      dir: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
+    };
+    setTimeSales(prev => [entry, ...prev.slice(0, 199)]); // newest first, cap at 200
   });
 
   useEffect(() => {
@@ -260,19 +273,55 @@ export default function TradePage() {
             </div>
           </Card>
 
-          <Card padding={0} style={{ flex: 1 }}>
-            <div style={{ padding: '16px 22px', borderBottom: `1px solid ${D.hairline}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Card padding={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/* Header */}
+            <div style={{ padding: '16px 22px', borderBottom: `1px solid ${D.hairline}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
               <div>
                 <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15, color: D.ink, letterSpacing: '-0.01em' }}>Time & sales</div>
-                <div style={{ fontSize: 11.5, color: D.ink50, marginTop: 2 }}>Last matched trades on {stock.ticker}</div>
+                <div style={{ fontSize: 11.5, color: D.ink50, marginTop: 2 }}>Price ticks for {stock.ticker}</div>
               </div>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: D.spring }}>
-                <span style={{ width: 6, height: 6, borderRadius: 3, background: D.spring, boxShadow: `0 0 6px ${D.spring}` }}/>
-                Live feed
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: timeSales.length > 0 ? D.spring : D.ink50 }}>
+                <span style={{ width: 6, height: 6, borderRadius: 3, background: timeSales.length > 0 ? D.spring : D.ink50, boxShadow: timeSales.length > 0 ? `0 0 6px ${D.spring}` : 'none', display: 'inline-block' }}/>
+                {timeSales.length > 0 ? 'Live' : 'Waiting…'}
               </span>
             </div>
-            <div style={{ padding: '32px 22px', textAlign: 'center', color: D.ink50, fontSize: 12 }}>
-              Trade feed arrives via WebSocket — connect to see live fills.
+
+            {/* Column headers */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: '80px 1fr 80px',
+              padding: '8px 18px', flexShrink: 0,
+              fontSize: 10, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.7, fontWeight: 600,
+              borderBottom: `1px solid ${D.hairline}`,
+            }}>
+              <div>Time</div><div style={{ textAlign: 'right' }}>Price</div><div style={{ textAlign: 'right' }}>Change</div>
+            </div>
+
+            {/* Scrollable tick list */}
+            <div ref={timeSalesRef} style={{ flex: 1, overflowY: 'auto', maxHeight: 320 }}>
+              {timeSales.length === 0 ? (
+                <div style={{ padding: '28px 18px', textAlign: 'center', color: D.ink50, fontSize: 12 }}>
+                  Waiting for the first tick on {stock.ticker}…
+                </div>
+              ) : timeSales.map(t => {
+                const color = t.dir === 'up' ? D.buy : t.dir === 'down' ? D.sell : D.ink50;
+                const hh = t.time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                return (
+                  <div key={t.id} style={{
+                    display: 'grid', gridTemplateColumns: '80px 1fr 80px',
+                    padding: '6px 18px', alignItems: 'center',
+                    borderBottom: `1px solid ${D.hairline}`,
+                    fontFamily: FONT_BODY, fontSize: 12.5,
+                  }}>
+                    <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: D.ink50 }}>{hh}</div>
+                    <div style={{ textAlign: 'right', fontFamily: FONT_HEAD, fontWeight: 700, color, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
+                      ${t.price.toFixed(2)}
+                    </div>
+                    <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color, fontSize: 11.5, fontWeight: 600 }}>
+                      {t.dir === 'up' ? '+' : t.dir === 'down' ? '' : ''}{t.change.toFixed(2)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Card>
         </div>
