@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, Sparkline, AreaChart, genSeries } from '../components/shared/dark-ui';
@@ -7,7 +7,7 @@ import { getMyHoldings } from '../api/holdings';
 import { getMyTransactions } from '../api/transactions';
 import { getMyAccounts } from '../api/accounts';
 import { useAuth } from '../context/AuthContext';
-import { useLivePrices } from '../context/NotificationsContext';
+import { useLivePrices, useNotificationMessage } from '../context/NotificationsContext';
 
 const Stat = ({ label, value, tone }) => (
   <div>
@@ -70,20 +70,31 @@ export default function HomePage() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [h, t, a] = await Promise.allSettled([
-          getMyHoldings(), getMyTransactions(), getMyAccounts(),
-        ]);
-        if (h.status === 'fulfilled') setHoldings(h.value || []);
-        if (t.status === 'fulfilled') setTransactions((t.value || []).slice(0, 6));
-        if (a.status === 'fulfilled') setAccounts(a.value || []);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const fetchPortfolioData = useCallback(async () => {
+    try {
+      const [h, t, a] = await Promise.allSettled([
+        getMyHoldings(), getMyTransactions(), getMyAccounts(),
+      ]);
+      if (h.status === 'fulfilled') setHoldings(h.value || []);
+      if (t.status === 'fulfilled') setTransactions((t.value || []).slice(0, 6));
+      if (a.status === 'fulfilled') setAccounts(a.value || []);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchPortfolioData(); }, [fetchPortfolioData]);
+
+  // Poll every 15 s so holdings/balance update after fills even without WebSocket
+  useEffect(() => {
+    const id = setInterval(fetchPortfolioData, 15_000);
+    return () => clearInterval(id);
+  }, [fetchPortfolioData]);
+
+  // Refresh immediately when an order is filled/cancelled (uses shared WS connection)
+  useNotificationMessage((msg) => {
+    if (msg?.type === 'ORDER_UPDATE') fetchPortfolioData();
+  });
 
   const portfolio = useMemo(() => {
     let totalValue = 0, totalCost = 0;
