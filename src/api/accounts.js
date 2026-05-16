@@ -11,17 +11,17 @@ export async function getMyAccounts() {
 
 /**
  * Backward-compat helper for pages that still expect a single "primary" account.
- * Picks the EUR account if present, otherwise the first one. Use getMyAccounts()
+ * Picks the USD account if present, otherwise the first one. Use getMyAccounts()
  * for anything that needs to display multiple currencies.
  */
 export async function getMyAccount() {
   const accounts = await getMyAccounts();
   if (accounts.length === 0) return null;
-  return accounts.find(a => a.currency === 'EUR') || accounts[0];
+  return accounts.find(a => a.currency === 'USD') || accounts[0];
 }
 
 /**
- * Backward-compat: returns { available, frozen, total, currency } for the EUR
+ * Backward-compat: returns { available, frozen, total, currency } for the USD
  * account (or first one). Pages that need multi-currency should call getMyAccounts()
  * directly and not this.
  */

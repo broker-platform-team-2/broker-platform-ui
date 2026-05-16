@@ -36,9 +36,9 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-function fmtMoney(n, currency = 'EUR') {
+function fmtMoney(n, currency = 'USD') {
   if (n == null) return '—';
-  return `${currency === 'EUR' ? '€' : currency}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function OrderDetail({ tx }) {

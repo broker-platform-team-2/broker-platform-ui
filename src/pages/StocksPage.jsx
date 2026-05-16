@@ -146,7 +146,7 @@ export default function StocksPage() {
                   <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5, color: D.ink, letterSpacing: 0.2 }}>{s.ticker}</div>
                   <div style={{ fontSize: 11, color: D.ink50, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</div>
                 </div>
-                <div style={{ textAlign: 'right', fontFamily: FONT_BODY, fontVariantNumeric: 'tabular-nums', color: D.ink, fontSize: 13, fontWeight: 500 }}>€{s.price.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontFamily: FONT_BODY, fontVariantNumeric: 'tabular-nums', color: D.ink, fontSize: 13, fontWeight: 500 }}>${s.price.toFixed(2)}</div>
                 <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: s.changePct >= 0 ? D.buy : D.sell }}>
                   {s.changePct >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%
                 </div>
@@ -175,7 +175,7 @@ export default function StocksPage() {
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <Money value={stock.price} currency="EUR" big/>
+                <Money value={stock.price} currency="USD" big/>
                 <div style={{ marginTop: 4 }}><Delta value={stock.change} pct={stock.changePct}/></div>
               </div>
             </div>
@@ -208,14 +208,14 @@ export default function StocksPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: 16 }}>
             <Card padding={22}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 18 }}>
-                <KPI label="Open" value={`€${(stock.price - (stock.change || 0)).toFixed(2)}`}/>
-                <KPI label="Day high" value={`€${(stock.price * 1.012).toFixed(2)}`}/>
-                <KPI label="Day low" value={`€${(stock.price * 0.987).toFixed(2)}`}/>
+                <KPI label="Open" value={`$${(stock.price - (stock.change || 0)).toFixed(2)}`}/>
+                <KPI label="Day high" value={`$${(stock.price * 1.012).toFixed(2)}`}/>
+                <KPI label="Day low" value={`$${(stock.price * 0.987).toFixed(2)}`}/>
                 <KPI label="Volume" value={stock.volume > 0 ? `${(stock.volume / 1000).toFixed(1)}k` : '—'}/>
-                <KPI label="Mkt cap" value={stock.mcap && stock.mcap !== '—' ? `€${stock.mcap}` : '—'}/>
+                <KPI label="Mkt cap" value={stock.mcap && stock.mcap !== '—' ? `$${stock.mcap}` : '—'}/>
                 <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
                 <KPI label="P/E" value="—"/>
-                <KPI label="52w range" value={`€${(stock.price * 0.6).toFixed(0)}–${(stock.price * 1.4).toFixed(0)}`}/>
+                <KPI label="52w range" value={`$${(stock.price * 0.6).toFixed(0)}–${(stock.price * 1.4).toFixed(0)}`}/>
               </div>
 
               <div style={{
@@ -234,7 +234,7 @@ export default function StocksPage() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>Algorithmic forecast · 7-day</div>
                   <div style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
-                    Target <span style={{ color: D.spring }}>€{(stock.price * (1 + (stock.changePct || 0) / 100 * 1.5)).toFixed(2)}</span>
+                    Target <span style={{ color: D.spring }}>${(stock.price * (1 + (stock.changePct || 0) / 100 * 1.5)).toFixed(2)}</span>
                     <span style={{ color: D.ink50, fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· 71% confidence</span>
                   </div>
                 </div>
@@ -273,9 +273,9 @@ export default function StocksPage() {
                       }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(b.qty / maxQty) * 50}%`, maxWidth: '50%', background: D.buyBg, opacity: 0.6 }}/>
                         <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: `${(a.qty / maxQty) * 50}%`, maxWidth: '50%', background: D.sellBg, opacity: 0.6 }}/>
-                        <div style={{ color: D.buy, fontWeight: 600, position: 'relative' }}>€{b.price.toFixed(2)}</div>
+                        <div style={{ color: D.buy, fontWeight: 600, position: 'relative' }}>${b.price.toFixed(2)}</div>
                         <div style={{ textAlign: 'center', color: D.ink70, position: 'relative' }}>{(b.qty + a.qty).toLocaleString()}</div>
-                        <div style={{ textAlign: 'right', color: D.sell, fontWeight: 600, position: 'relative' }}>€{a.price.toFixed(2)}</div>
+                        <div style={{ textAlign: 'right', color: D.sell, fontWeight: 600, position: 'relative' }}>${a.price.toFixed(2)}</div>
                       </div>
                     );
                   })}
@@ -283,7 +283,7 @@ export default function StocksPage() {
                   <div style={{ borderTop: `1px solid ${D.hairline}`, padding: '12px 18px', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: D.surface2 }}>
                     <div style={{ fontSize: 11, color: D.ink50 }}>Spread</div>
                     <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
-                      €{(liveBook.asks[0].price - liveBook.bids[0].price).toFixed(2)}
+                      ${(liveBook.asks[0].price - liveBook.bids[0].price).toFixed(2)}
                     </div>
                   </div>
                 </>

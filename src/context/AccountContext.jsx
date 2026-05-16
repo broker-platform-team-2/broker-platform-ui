@@ -24,7 +24,7 @@ export function AccountProvider({ children }) {
         setActiveIdState(prev => {
           const exists = list.some(a => String(a.accountId) === String(prev));
           if (exists) return prev;
-          const primary = list.find(a => a.currency === 'EUR') || list[0];
+          const primary = list.find(a => a.currency === 'USD') || list[0];
           const id = primary ? String(primary.accountId) : null;
           if (id) localStorage.setItem(ACTIVE_KEY, id);
           return id;

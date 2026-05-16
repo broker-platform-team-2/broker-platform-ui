@@ -111,11 +111,9 @@ export default function HomePage() {
     [portfolio.totalValue]
   );
 
-  // For the "Cash" stat in the profile card, show the EUR account specifically
-  // (it's a small number, can't fit multi-currency). Primary = EUR if it exists.
-  const primary = accounts.find(a => a.currency === 'EUR') || accounts[0];
+  const primary = accounts.find(a => a.currency === 'USD') || accounts[0];
   const primaryAvailable = Number(primary?.balance ?? 0);
-  const primaryCurrency = primary?.currency || 'EUR';
+  const primaryCurrency = primary?.currency || 'USD';
 
 
   return (
@@ -137,7 +135,7 @@ export default function HomePage() {
             <div>
               <div style={{ fontSize: 12, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Portfolio Value</div>
               <div style={{ marginTop: 8 }}>
-                <Money value={portfolio.totalValue} currency="EUR" big/>
+                <Money value={portfolio.totalValue} currency="USD" big/>
               </div>
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Delta value={portfolio.totalPnl} pct={portfolio.totalPnlPct}/>
@@ -263,17 +261,17 @@ export default function HomePage() {
                 </div>
               </div>
               <div style={{ color: D.ink, fontVariantNumeric: 'tabular-nums' }}>{row.amount}</div>
-              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>€{row.avgCost.toFixed(2)}</div>
+              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>${row.avgCost.toFixed(2)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>€{(row.stock?.price ?? row.avgCost).toFixed(2)}</span>
+                <span style={{ color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>${(row.stock?.price ?? row.avgCost).toFixed(2)}</span>
                 <Sparkline data={genSeries(row.ticker.charCodeAt(0) + i * 17, 24, 100, row.stock?.volatility || 0.03)} width={56} height={20}/>
               </div>
               <div style={{ textAlign: 'right', color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                €{row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: row.pnl >= 0 ? D.buy : D.sell, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                  {row.pnl >= 0 ? '+' : '−'}€{Math.abs(row.pnl).toFixed(2)}
+                  {row.pnl >= 0 ? '+' : '−'}${Math.abs(row.pnl).toFixed(2)}
                 </div>
                 <div style={{ fontSize: 11, color: row.pnl >= 0 ? D.buy : D.sell, opacity: 0.8 }}>
                   {row.pnl >= 0 ? '+' : '−'}{Math.abs(row.pnlPct).toFixed(2)}%
@@ -299,10 +297,10 @@ export default function HomePage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
               <Stat label="Trades" value={transactions.length}/>
-              <Stat label="Realised P&L" value={`€${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
+              <Stat label="Realised P&L" value={`$${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
               <Stat label="Holdings" value={portfolio.rows.length}/>
               <Stat label={`Cash · ${primaryCurrency}`} value={
-                primaryCurrency === 'EUR' ? `€${primaryAvailable.toFixed(0)}`
+                primaryCurrency === 'USD' ? `$${primaryAvailable.toFixed(0)}`
                 : primaryCurrency === 'RON' ? `lei ${primaryAvailable.toFixed(0)}`
                 : `${primaryAvailable.toFixed(0)} ${primaryCurrency}`
               }/>
@@ -348,11 +346,11 @@ export default function HomePage() {
               <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>
                 {qty} <span style={{ color: D.ink50 }}>shares</span>
               </div>
-              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>@ €{price.toFixed(2)}</div>
+              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>@ ${price.toFixed(2)}</div>
               <div><Pill color={sc.color} bg={sc.bg}>{status || 'PENDING'}</Pill></div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: D.ink, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                  €{(qty * price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${(qty * price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>
                   {tx.date ? new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—'}

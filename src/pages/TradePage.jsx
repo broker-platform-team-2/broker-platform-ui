@@ -8,7 +8,7 @@ import { placeOrder } from '../api/orders';
 import { getMyHoldings } from '../api/holdings';
 import { useAccount } from '../context/AccountContext';
 import { useLivePrices } from '../context/NotificationsContext';
-import { fromEUR, getRate } from '../data/exchangeRates';
+import { fromUSD, getRate } from '../data/exchangeRates';
 
 const SYMBOLS = {
   EUR: '€',  USD: '$',   GBP: '£',   CHF: 'CHF ', JPY: '¥',
@@ -133,14 +133,14 @@ export default function TradePage() {
   const proceeds = qty * execPrice - fee;
 
   const availBalance = Number(activeAccount?.balance || 0);
-  const activeCurrency = activeAccount?.currency || 'EUR';
+  const activeCurrency = activeAccount?.currency || 'USD';
   const activeSym = SYMBOLS[activeCurrency] || `${activeCurrency} `;
   const ownedQty = Number(holding?.amount || 0);
 
-  const needsConversion = activeCurrency !== 'EUR';
+  const needsConversion = activeCurrency !== 'USD';
   const fxRate = getRate(activeCurrency);
-  const totalInAccountCurrency = needsConversion ? fromEUR(side === 'BUY' ? total : proceeds, activeCurrency) : (side === 'BUY' ? total : proceeds);
-  const feeInAccountCurrency = needsConversion ? fromEUR(fee, activeCurrency) : fee;
+  const totalInAccountCurrency = needsConversion ? fromUSD(side === 'BUY' ? total : proceeds, activeCurrency) : (side === 'BUY' ? total : proceeds);
+  const feeInAccountCurrency = needsConversion ? fromUSD(fee, activeCurrency) : fee;
 
   const canAfford = side === 'BUY' ? totalInAccountCurrency <= availBalance : true;
   const canSell = side === 'SELL' ? qty <= ownedQty : true;
@@ -162,6 +162,7 @@ export default function TradePage() {
         quantity: qty,
         limitPrice: orderType === 'LIMIT' ? Number(limitPrice ?? stock.price) : null,
         expiresAt: null,
+        currency: activeCurrency,
       });
       setConfirmation(order);
     } catch (e) {
@@ -198,7 +199,7 @@ export default function TradePage() {
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <Money value={stock.price} currency="EUR" big/>
+                <Money value={stock.price} currency="USD" big/>
                 <div style={{ marginTop: 4 }}><Delta value={stock.change} pct={stock.changePct}/></div>
               </div>
             </div>
@@ -208,8 +209,8 @@ export default function TradePage() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginTop: 18, paddingTop: 18, borderTop: `1px solid ${D.hairline}` }}>
-              <KPI label="Bid" value={stock.price > 0 ? `€${(stock.price - 0.05).toFixed(2)}` : '—'}/>
-              <KPI label="Ask" value={stock.price > 0 ? `€${(stock.price + 0.05).toFixed(2)}` : '—'}/>
+              <KPI label="Bid" value={stock.price > 0 ? `$${(stock.price - 0.05).toFixed(2)}` : '—'}/>
+              <KPI label="Ask" value={stock.price > 0 ? `$${(stock.price + 0.05).toFixed(2)}` : '—'}/>
               <KPI label="Volume" value={stock.volume > 0 ? `${(stock.volume / 1000).toFixed(1)}k` : '—'}/>
               <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
             </div>
@@ -334,8 +335,8 @@ export default function TradePage() {
                 <button key={v} onClick={() => {
                   if (v === 'Max') {
                     if (side === 'BUY' && execPrice > 0) {
-                      const availableInEUR = needsConversion ? availBalance / fxRate : availBalance;
-                      setQty(Math.floor(availableInEUR / execPrice));
+                      const availableInUSD = needsConversion ? availBalance / fxRate : availBalance;
+                      setQty(Math.floor(availableInUSD / execPrice));
                     } else if (side === 'SELL') setQty(ownedQty);
                   } else setQty(v);
                 }} style={{
@@ -353,7 +354,7 @@ export default function TradePage() {
                   background: D.surface2, border: `1px solid ${D.hairline}`,
                   borderRadius: 9, padding: '10px 12px', marginBottom: 6,
                 }}>
-                  <span style={{ color: D.ink50, fontFamily: FONT_HEAD, fontWeight: 600 }}>€</span>
+                  <span style={{ color: D.ink50, fontFamily: FONT_HEAD, fontWeight: 600 }}>$</span>
                   <input type="number" step="0.01" value={limitPrice ?? ''} placeholder={stock.price.toFixed(2)}
                     onChange={(e) => setLimitPrice(e.target.value ? +e.target.value : null)}
                     style={{
@@ -362,8 +363,8 @@ export default function TradePage() {
                     }}/>
                 </div>
                 <div style={{ marginBottom: 16, fontSize: 11, color: D.ink50 }}>
-                  Mid <span style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>€{stock.price.toFixed(2)}</span>
-                  {' · '}Spread <span style={{ color: D.ink70 }}>€0.10</span>
+                  Mid <span style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>${stock.price.toFixed(2)}</span>
+                  {' · '}Spread <span style={{ color: D.ink70 }}>$0.10</span>
                 </div>
 
                 <Label>Time in force</Label>
@@ -384,19 +385,19 @@ export default function TradePage() {
             <div style={{ background: D.surface2, borderRadius: 12, padding: 14, marginTop: 4, marginBottom: 12, border: `1px solid ${D.hairline}` }}>
               <SummaryRow label={`${activeCurrency} available`} value={`${activeSym}${availBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
               <div style={{ height: 1, background: D.hairline, margin: '8px 0' }}/>
-              <SummaryRow label="Estimated price" value={orderType === 'MARKET' ? `€${stock.price.toFixed(2)} (mkt)` : `€${execPrice.toFixed(2)}`}/>
-              <SummaryRow label="Subtotal" value={`€${(qty * execPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
+              <SummaryRow label="Estimated price" value={orderType === 'MARKET' ? `$${stock.price.toFixed(2)} (mkt)` : `$${execPrice.toFixed(2)}`}/>
+              <SummaryRow label="Subtotal" value={`$${(qty * execPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}/>
               <SummaryRow
                 label="Platform fee · 0.08%"
                 value={needsConversion
                   ? `${activeSym}${feeInAccountCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : `€${fee.toFixed(2)}`}
+                  : `$${fee.toFixed(2)}`}
                 hint={<span style={{ color: D.spring }}>→ microloans</span>}
               />
               {needsConversion && (
                 <SummaryRow
                   label="Exchange rate"
-                  value={`1 EUR = ${fxRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${activeCurrency}`}
+                  value={`1 USD = ${fxRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${activeCurrency}`}
                   hint={<span style={{ color: D.ink50, fontSize: 10 }}>indicative</span>}
                 />
               )}
@@ -408,7 +409,7 @@ export default function TradePage() {
               />
               {needsConversion && (
                 <div style={{ fontSize: 11, color: D.ink50, marginTop: 6, lineHeight: 1.4 }}>
-                  ≈ €{(side === 'BUY' ? total : proceeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · converted automatically at execution
+                  ≈ ${(side === 'BUY' ? total : proceeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD · debited from your {activeCurrency} account at this rate
                 </div>
               )}
             </div>
@@ -433,7 +434,7 @@ export default function TradePage() {
                 ✓ Order placed · status {confirmation.status || 'PENDING'}
                 {needsConversion && (
                   <div style={{ marginTop: 4, color: D.sage, opacity: 0.8 }}>
-                    {activeSym}{totalInAccountCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeCurrency} will be {side === 'BUY' ? 'deducted' : 'credited'} after conversion
+                    {activeSym}{totalInAccountCurrency.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeCurrency} will be {side === 'BUY' ? 'deducted from' : 'credited to'} your {activeCurrency} account
                   </div>
                 )}
               </div>

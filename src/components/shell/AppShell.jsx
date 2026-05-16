@@ -125,7 +125,7 @@ function noteText(n) {
   if (n.type === 'PRICE_UPDATE') {
     const ticker = p.ticker ?? p.symbol ?? '';
     const price = p.current_price ?? p.price ?? '';
-    return `${ticker}${price ? ' @ €' + Number(price).toFixed(2) : ''}`;
+    return `${ticker}${price ? ' @ $' + Number(price).toFixed(2) : ''}`;
   }
   return JSON.stringify(p).slice(0, 80);
 }
