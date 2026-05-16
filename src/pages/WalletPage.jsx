@@ -596,7 +596,7 @@ export default function WalletPage() {
         <Card padding={22}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
             <div>
-              <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>Account balance · 30 days</div>
+              <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>Account balance</div>
               <div style={{ fontSize: 12, color: D.ink50, marginTop: 3 }}>Net cash position over time</div>
             </div>
             <div style={{ textAlign: 'right' }}>
