@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
 import { useAuth } from '../../context/AuthContext';
 import { useAccount } from '../../context/AccountContext';
-import { useNotificationsContext } from '../../context/NotificationsContext';
+import { useNotificationsContext, useNotificationMessage } from '../../context/NotificationsContext';
 
 const NAV = [
   { id: 'home',   label: 'Home',    icon: 'home',   path: '/home' },
@@ -118,9 +118,18 @@ function noteText(n) {
     return `Order ${id ? '#' + id : ''} → ${status}`;
   }
   if (n.type === 'MARKET_EVENT') {
-    const headline = p.headline ?? p.message ?? p.event ?? '';
-    const kind = p.event_type ?? p.type ?? '';
-    return headline || kind || 'Market event';
+    // The exchange sends MARKET_EVENT with empty fields as a signal only;
+    // actual status is fetched via REST. Show whatever non-empty data exists.
+    const headline = p.headline ?? p.message ?? p.description ?? p.event ?? p.text ?? '';
+    const kind = p.event_type ?? p.eventType ?? p.status ?? p.kind ?? '';
+    if (headline && kind) return `${kind}: ${headline}`;
+    if (headline) return headline;
+    if (kind) return kind;
+    const vals = Object.entries(p)
+      .filter(([, v]) => typeof v === 'string' && v.trim())
+      .map(([, v]) => v)
+      .join(' · ');
+    return vals || 'Market status changed — check sidebar';
   }
   if (n.type === 'PRICE_UPDATE') {
     const ticker = p.ticker ?? p.symbol ?? '';
@@ -128,6 +137,94 @@ function noteText(n) {
     return `${ticker}${price ? ' @ $' + Number(price).toFixed(2) : ''}`;
   }
   return JSON.stringify(p).slice(0, 80);
+}
+
+// Inject slide-in animation once
+if (typeof document !== 'undefined' && !document.getElementById('toast-keyframes')) {
+  const s = document.createElement('style');
+  s.id = 'toast-keyframes';
+  s.textContent = '@keyframes fadeSlideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }';
+  document.head.appendChild(s);
+}
+
+// ── Toast notifications ────────────────────────────────────────────────────────
+const TOAST_DURATION = 6000; // ms before auto-dismiss
+
+function ToastStack() {
+  const [toasts, setToasts] = useState([]);
+  const timers = useRef({});
+
+  // Keep a live ref to marketStatus so the delayed MARKET_EVENT toast can read
+  // the freshly-fetched value (the context updates it ~500 ms after the event)
+  const { marketStatus } = useNotificationsContext() ?? {};
+  const marketStatusRef = useRef(marketStatus);
+  useEffect(() => { marketStatusRef.current = marketStatus; }, [marketStatus]);
+
+  const dismiss = (id) => {
+    clearTimeout(timers.current[id]);
+    delete timers.current[id];
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  useNotificationMessage((msg) => {
+    if (!['ORDER_UPDATE', 'MARKET_EVENT'].includes(msg?.type)) return;
+    const id = Date.now() + Math.random();
+
+    if (msg.type === 'MARKET_EVENT') {
+      // Wait 800 ms so getMarketStatus() in NotificationsContext has time to resolve
+      setTimeout(() => {
+        const ms = marketStatusRef.current;
+        const text = ms
+          ? `Market is now ${ms.isOpen ? 'OPEN 🟢' : 'CLOSED 🔴'}`
+          : 'Market status changed';
+        const toast = { id, type: 'MARKET_EVENT', text, color: noteColor('MARKET_EVENT') };
+        setToasts(prev => [...prev.slice(-4), toast]);
+        timers.current[id] = setTimeout(() => dismiss(id), TOAST_DURATION);
+      }, 800);
+    } else {
+      const toast = { id, type: msg.type, text: noteText(msg), color: noteColor(msg.type) };
+      setToasts(prev => [...prev.slice(-4), toast]);
+      timers.current[id] = setTimeout(() => dismiss(id), TOAST_DURATION);
+    }
+  });
+
+  // Clean up timers on unmount
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
+
+  if (toasts.length === 0) return null;
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
+      display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end',
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          minWidth: 260, maxWidth: 360,
+          background: D.surface2,
+          border: `1px solid ${t.color}44`,
+          borderLeft: `4px solid ${t.color}`,
+          borderRadius: 12,
+          padding: '12px 14px',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          animation: 'fadeSlideIn 0.2s ease',
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 11, color: t.color, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+              {t.type.replace(/_/g, ' ')}
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: D.ink, lineHeight: 1.4 }}>
+              {t.text}
+            </div>
+          </div>
+          <button onClick={() => dismiss(t.id)} style={{
+            background: 'transparent', border: 'none', color: D.ink50,
+            cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px', flexShrink: 0,
+          }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const SYMBOLS = { EUR: '€', RON: 'lei ', USD: '$', GBP: '£', CHF: 'CHF ' };
@@ -275,6 +372,7 @@ export const AppShell = ({ title, subtitle, children }) => {
           {children}
         </div>
       </div>
+      <ToastStack />
     </div>
   );
 };

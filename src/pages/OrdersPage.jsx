@@ -3,7 +3,7 @@ import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill } from '../components/shared/dark-ui';
 import { getMyTransactions } from '../api/transactions';
-import { useNotifications } from '../hooks/useNotifications';
+import { useNotificationMessage } from '../context/NotificationsContext';
 
 const STATUS_TONE = {
   PENDING:          { label: 'Pending',          color: D.warn,   bg: 'rgba(251,191,36,0.12)'  },
@@ -123,7 +123,14 @@ export default function OrdersPage() {
 
   useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
 
-  useNotifications((msg) => {
+  // Poll every 10 s so status updates even when WebSocket is unavailable
+  useEffect(() => {
+    const id = setInterval(fetchTransactions, 10_000);
+    return () => clearInterval(id);
+  }, [fetchTransactions]);
+
+  // Also refresh immediately on any ORDER_UPDATE notification (uses shared WS connection)
+  useNotificationMessage((msg) => {
     if (msg?.type === 'ORDER_UPDATE') fetchTransactions();
   });
 
