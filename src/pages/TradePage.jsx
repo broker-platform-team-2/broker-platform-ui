@@ -7,7 +7,7 @@ import { getStocks, getStockHistory } from '../api/market';
 import { placeOrder } from '../api/orders';
 import { getMyHoldings } from '../api/holdings';
 import { useAccount } from '../context/AccountContext';
-import { useLivePrices } from '../context/NotificationsContext';
+import { useLivePrices, useNotificationMessage } from '../context/NotificationsContext';
 import { fromUSD, getRate } from '../data/exchangeRates';
 
 const SYMBOLS = {
@@ -65,7 +65,9 @@ export default function TradePage() {
       volume: live.volume || s.volume,
     };
   }), [baseStocks, livePrices]);
-  const [history, setHistory] = useState(null);
+  const [range, setRange] = useState('1D');
+  const [history, setHistory] = useState([]);
+  const [livePoints, setLivePoints] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
   const [error, setError] = useState('');
@@ -90,9 +92,18 @@ export default function TradePage() {
 
   useEffect(() => {
     if (!ticker) return;
-    setHistory(null);
-    getStockHistory(ticker, '1D').then(h => { if (h.length) setHistory(h); }).catch(() => {});
-  }, [ticker]);
+    setHistory([]);
+    setLivePoints([]);
+    getStockHistory(ticker, range).then(h => { if (h.length) setHistory(h); }).catch(() => {});
+  }, [ticker, range]);
+
+  // Append each live PRICE_UPDATE tick for the selected stock to the chart
+  useNotificationMessage((msg) => {
+    if (msg?.type !== 'PRICE_UPDATE') return;
+    if (String(msg.payload?.ticker).toUpperCase() !== String(ticker).toUpperCase()) return;
+    const price = Number(msg.payload?.price);
+    if (price > 0) setLivePoints(prev => [...prev.slice(-500), price]);
+  });
 
   useEffect(() => {
     getMyHoldings().then(h => setHoldings(h || [])).catch(() => {});
@@ -103,6 +114,22 @@ export default function TradePage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Hooks must be before early returns — use a safe price derived from stocks state
+  const currentPrice = stocks.find(s => s.ticker === ticker)?.price ?? 0;
+
+  // Chart: merge historical candles with live ticks from WebSocket
+  const chartData = useMemo(() => {
+    const base = history.length ? history : (currentPrice > 0 ? [currentPrice] : []);
+    const combined = [...base, ...livePoints];
+    return combined.length >= 2 ? combined : [...combined, ...new Array(Math.max(0, 2 - combined.length)).fill(currentPrice || 0)];
+  }, [history, livePoints, currentPrice]);
+
+  // Green if the chart ends higher than it started, red otherwise
+  const chartColor = useMemo(() => {
+    if (chartData.length < 2) return D.sage;
+    return chartData[chartData.length - 1] >= chartData[0] ? D.sage : D.sell;
+  }, [chartData]);
 
   if (loadingStocks) {
     return (
@@ -145,9 +172,6 @@ export default function TradePage() {
   const canAfford = side === 'BUY' ? totalInAccountCurrency <= availBalance : true;
   const canSell = side === 'SELL' ? qty <= ownedQty : true;
   const valid = qty > 0 && canAfford && canSell;
-
-  // Chart: real history or flat baseline at current price
-  const chartData = history?.length ? history : new Array(10).fill(stock.price);
 
   async function submit() {
     setSubmitting(true);
@@ -204,8 +228,28 @@ export default function TradePage() {
               </div>
             </div>
 
+            {/* Range selector */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+              {['1D', '1W', '1M', '3M', '1Y'].map(r => (
+                <button key={r} onClick={() => setRange(r)} style={{
+                  padding: '4px 10px',
+                  background: range === r ? D.surface3 : 'transparent',
+                  border: `1px solid ${range === r ? D.hairline2 : D.hairline}`,
+                  color: range === r ? D.ink : D.ink50,
+                  borderRadius: 6, fontFamily: FONT_BODY, fontWeight: 600,
+                  fontSize: 11, cursor: 'pointer',
+                }}>{r}</button>
+              ))}
+              {livePoints.length > 0 && (
+                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: D.spring }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 3, background: D.spring, boxShadow: `0 0 6px ${D.spring}`, display: 'inline-block' }}/>
+                  {livePoints.length} live tick{livePoints.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+
             <div style={{ marginLeft: -8, marginRight: -8 }}>
-              <AreaChart data={chartData} height={140} color={stock.changePct >= 0 ? D.sage : D.sell}/>
+              <AreaChart data={chartData} height={140} color={chartColor}/>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginTop: 18, paddingTop: 18, borderTop: `1px solid ${D.hairline}` }}>
