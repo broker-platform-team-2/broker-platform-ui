@@ -134,10 +134,14 @@ export default function OrdersPage() {
     if (msg?.type === 'ORDER_UPDATE') fetchTransactions();
   });
 
-  const today = new Date().toDateString();
+  // Compare date parts in UTC to avoid timezone drift between the Docker
+  // server (UTC) and the browser's local clock.
+  const todayUTC = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
   const openCount   = transactions.filter(t => OPEN_STATUSES.has(t.status)).length;
-  const filledToday = transactions.filter(t => t.status === 'FILLED' && new Date(t.date).toDateString() === today);
+  const filledToday = transactions.filter(t =>
+    t.status === 'FILLED' && t.date && String(t.date).slice(0, 10) === todayUTC
+  );
   const totalFilled = filledToday.reduce((s, t) => s + Number(t.price) * t.quantity, 0);
   const totalFees   = transactions.reduce((s, t) => s + Number(t.platformFee ?? 0), 0);
 
