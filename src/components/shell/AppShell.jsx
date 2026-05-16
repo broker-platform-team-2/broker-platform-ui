@@ -246,7 +246,7 @@ const TopBar = ({ title, subtitle, notifications, onClearNotifications }) => {
   return (
     <header style={{
       display: 'flex', alignItems: 'center', gap: 16,
-      padding: '14px 24px',
+      padding: '14px 24px 14px 48px',
       borderBottom: `1px solid ${D.hairline}`,
       background: D.bg,
     }}>

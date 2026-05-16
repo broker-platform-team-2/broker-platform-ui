@@ -70,11 +70,13 @@ export const Sparkline = ({ data, width = 90, height = 28, color }) => {
   );
 };
 
-export const AreaChart = ({ data, height = 220, color = D.sage, glow = true }) => {
+export const AreaChart = ({ data, height = 220, color = D.sage, glow = true, min: forcedMin }) => {
   if (!data || !data.length) return null;
   const w = 800;
   const h = height;
-  const min = Math.min(...data), max = Math.max(...data);
+  const dataMin = Math.min(...data);
+  const min = forcedMin !== undefined ? forcedMin : dataMin;
+  const max = Math.max(...data);
   const range = max - min || 1;
   const step = w / (data.length - 1);
   const points = data.map((v, i) => [i * step, h - ((v - min) / range) * (h - 24) - 12]);
@@ -94,7 +96,10 @@ export const AreaChart = ({ data, height = 220, color = D.sage, glow = true }) =
       ))}
       <path d={area} fill={`url(#${id})`}/>
       <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-        style={glow ? { filter: `drop-shadow(0 0 6px ${color}88)` } : {}}/>
+        style={{
+          transition: 'd 0.3s ease-out, filter 0.3s',
+          ...(glow ? { filter: `drop-shadow(0 0 6px ${color}88)` } : {})
+        }}/>
       <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r="4" fill={color}/>
       <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r="9" fill={color} opacity="0.18"/>
     </svg>
