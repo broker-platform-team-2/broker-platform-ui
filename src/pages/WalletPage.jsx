@@ -460,6 +460,21 @@ export default function WalletPage() {
     return true;
   });
 
+  const handleDepositConfirm = useCallback(async (amount) => {
+    await deposit(activeCurrency, amount);
+    await refreshAll();
+  }, [activeCurrency, refreshAll]);
+
+  const handleWithdrawConfirm = useCallback(async (amount) => {
+    await deduct(activeCurrency, amount);
+    await refreshAll();
+  }, [activeCurrency, refreshAll]);
+
+  const handleAddAccountConfirm = useCallback(async (currency) => {
+    await createAccount(currency);
+    await refreshAll();
+  }, [refreshAll]);
+
   const cashflowData = buildCashflowSeries(fundOps, Number(account?.balance) || 0);
 
   const totalDeposited = fundOps
