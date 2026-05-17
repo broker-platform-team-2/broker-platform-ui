@@ -469,21 +469,6 @@ export default function WalletPage() {
     .filter(op => op.operationType === 'WITHDRAW')
     .reduce((s, op) => s + Number(op.amount), 0);
 
-  const handleDepositConfirm = async (amount) => {
-    await deposit(activeCurrency, amount);
-    await refreshAccounts();
-  };
-
-  const handleWithdrawConfirm = async (amount) => {
-    await deduct(activeCurrency, amount);
-    await refreshAccounts();
-  };
-
-  const handleAddAccountConfirm = async (currency) => {
-    await createAccount(currency);
-    await refreshAccounts();
-  };
-
   return (
     <AppShell title="Wallet" subtitle="Accounts, deposits & transfers">
       {(modal === 'deposit' || modal === 'withdraw') && (

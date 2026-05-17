@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card } from '../components/shared/dark-ui';
-import { getBotStatus, subscribeBot, startBot, stopBot } from '../api/bot';
+import { getBotStatus, subscribeBot, startBot, stopBot, setBotTradingAccount } from '../api/bot';
 import { useAccount } from '../context/AccountContext';
 import { fromUSD, getRate } from '../data/exchangeRates';
+import BotDashboardPanel from '../components/bot/BotDashboardPanel';
 
 const SYMBOLS = { EUR: '€', USD: '$', GBP: '£', CHF: 'CHF ', RON: 'lei ' };
 const MONTHLY_FEE_USD = 49.99;
@@ -37,6 +38,49 @@ export default function BotPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef(null);
+
+  // Trading account — the account the bot places orders into.
+  // Stored locally and synced to backend when changed.
+  const TRADING_ACCT_KEY = 'wakibi.botTradingAccountId';
+  const [tradingAccountId, setTradingAccountIdState] = useState(
+    () => localStorage.getItem(TRADING_ACCT_KEY)
+  );
+  const [tradingPickerOpen, setTradingPickerOpen] = useState(false);
+  const [tradingSettingMsg, setTradingSettingMsg] = useState('');
+  const tradingPickerRef = useRef(null);
+
+  async function handleSetTradingAccount(id) {
+    setTradingPickerOpen(false);
+    const prev = tradingAccountId;
+    localStorage.setItem(TRADING_ACCT_KEY, String(id));
+    setTradingAccountIdState(String(id));
+    setTradingSettingMsg('');
+    try {
+      await setBotTradingAccount(id);
+      setTradingSettingMsg('saved');
+    } catch {
+      // Backend endpoint may not exist yet — silently keep local preference
+      setTradingSettingMsg('saved-local');
+    }
+    setTimeout(() => setTradingSettingMsg(''), 2500);
+  }
+
+  useEffect(() => {
+    // Default trading account to active account if none set yet
+    if (!tradingAccountId && activeId) {
+      localStorage.setItem(TRADING_ACCT_KEY, String(activeId));
+      setTradingAccountIdState(String(activeId));
+    }
+  }, [activeId, tradingAccountId]);
+
+  useEffect(() => {
+    const handler = e => {
+      if (tradingPickerRef.current && !tradingPickerRef.current.contains(e.target))
+        setTradingPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const fetchStatus = useCallback(() => {
     getBotStatus()
@@ -337,9 +381,86 @@ export default function BotPage() {
               The bot trades on your behalf using your existing account balance. Past performance does not guarantee future results.
             </div>
           </div>
+
+          {/* ── Trading account selector ─────────────────────────── */}
+          {isActive && accounts.length > 0 && (
+            <div style={{ borderTop: `1px solid ${D.hairline}`, padding: '18px 24px 22px' }}>
+              <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                Profit account
+              </div>
+              <div style={{ fontSize: 11, color: D.ink50, marginBottom: 10, lineHeight: 1.5 }}>
+                Bot profits are deposited into this account.
+              </div>
+              <div ref={tradingPickerRef} style={{ position: 'relative' }}>
+                {(() => {
+                  const tradingAcct = accounts.find(a => String(a.accountId) === String(tradingAccountId)) || accounts[0];
+                  const tSym = SYMBOLS[tradingAcct?.currency] || `${tradingAcct?.currency} `;
+                  return (
+                    <>
+                      <button onClick={() => setTradingPickerOpen(o => !o)} style={{
+                        width: '100%', textAlign: 'left', cursor: 'pointer',
+                        background: D.surface2, border: `1px solid ${tradingPickerOpen ? D.teal : D.hairline}`,
+                        borderRadius: tradingPickerOpen ? '9px 9px 0 0' : 9, padding: '10px 12px',
+                        display: 'flex', alignItems: 'center', gap: 10, fontFamily: FONT_BODY,
+                      }}>
+                        <div style={{ background: 'rgba(46,158,150,0.14)', borderRadius: 6, padding: '3px 8px', fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12, color: D.teal }}>
+                          {tradingAcct?.currency || '—'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
+                            {tSym}{Number(tradingAcct?.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>Selected trading account</div>
+                        </div>
+                        <span style={{ color: D.ink50, fontSize: 11, transform: tradingPickerOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
+                      </button>
+                      {tradingPickerOpen && (
+                        <div style={{
+                          position: 'absolute', left: 0, right: 0, zIndex: 50,
+                          background: D.surface2, border: `1px solid ${D.teal}`,
+                          borderTop: 'none', borderRadius: '0 0 9px 9px', overflow: 'hidden',
+                        }}>
+                          {accounts.map((a, i) => {
+                            const isSel = String(a.accountId) === String(tradingAccountId);
+                            const sym = SYMBOLS[a.currency] || `${a.currency} `;
+                            return (
+                              <button key={a.accountId} onClick={() => handleSetTradingAccount(a.accountId)} style={{
+                                width: '100%', textAlign: 'left', cursor: 'pointer',
+                                background: isSel ? 'rgba(46,158,150,0.14)' : 'transparent',
+                                border: 'none', borderBottom: i < accounts.length - 1 ? `1px solid ${D.hairline}` : 'none',
+                                padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, fontFamily: FONT_BODY,
+                              }}>
+                                <div style={{ background: isSel ? 'rgba(46,158,150,0.14)' : D.surface3, borderRadius: 6, padding: '3px 8px', fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 12, color: isSel ? D.teal : D.ink50 }}>{a.currency}</div>
+                                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: D.ink, fontVariantNumeric: 'tabular-nums' }}>
+                                  {sym}{Number(a.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                                {isSel && <span style={{ color: D.teal }}>✓</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+              {tradingSettingMsg && (
+                <div style={{ marginTop: 8, fontSize: 11, color: D.teal }}>
+                  ✓ {tradingSettingMsg === 'saved' ? 'Trading account updated.' : 'Preference saved locally.'}
+                </div>
+              )}
+            </div>
+          )}
+
         </Card>
 
       </div>
+
+      {/* ── Live dashboard — full width below the grid ────────────────────── */}
+      {isActive && (
+        <BotDashboardPanel isRunning={isRunning} />
+      )}
+
     </AppShell>
   );
 }
