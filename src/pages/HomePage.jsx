@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, Sparkline, AreaChart, genSeries } from '../components/shared/dark-ui';
-import { getStocks } from '../api/market';
+import { getStocks, getStockHistory } from '../api/market';
 import { getMyHoldings } from '../api/holdings';
 import { getMyTransactions } from '../api/transactions';
 import { getMyAccounts } from '../api/accounts';
@@ -42,6 +42,7 @@ export default function HomePage() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [baseStockMap, setBaseStockMap] = useState({});
+  const [sessionPoints, setSessionPoints] = useState([]);
 
   const livePrices = useLivePrices();
 
@@ -117,10 +118,21 @@ export default function HomePage() {
     return { rows, totalValue, totalCost, totalPnl, totalPnlPct };
   }, [holdings, stockMap]);
 
-  const portfolioSeries = useMemo(
-    () => genSeries(42, 80, 100, 0.025).map(v => v * Math.max(1, portfolio.totalValue) / 100),
-    [portfolio.totalValue]
-  );
+  const portfolioSeries = useMemo(() => {
+    if (portfolio.totalValue === 0) return [];
+    return sessionPoints.length > 0
+      ? [...sessionPoints, portfolio.totalValue]
+      : [portfolio.totalValue, portfolio.totalValue];
+  }, [sessionPoints, portfolio.totalValue]);
+
+  useEffect(() => {
+    if (loading || portfolio.totalValue === 0) return;
+    setSessionPoints(prev => {
+      const last = prev[prev.length - 1];
+      if (last === portfolio.totalValue) return prev;
+      return [...prev, portfolio.totalValue].slice(-200);
+    });
+  }, [loading, portfolio.totalValue]);
 
   const primary = accounts.find(a => a.currency === 'USD') || accounts[0];
   const primaryAvailable = Number(primary?.balance ?? 0);
@@ -132,10 +144,10 @@ export default function HomePage() {
       subtitle={loading ? 'Loading…' : `Welcome back${user?.username ? `, @${user.username}` : ''}`}>
 
       {/* Hero row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 18, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginBottom: 18, alignItems: 'stretch' }}>
         <Card padding={26} style={{
           background: `linear-gradient(135deg, ${D.surface} 0%, ${D.surface2} 100%)`,
-          position: 'relative', overflow: 'hidden',
+          position: 'relative', overflow: 'hidden', height: '100%',
         }}>
           <div style={{
             position: 'absolute', right: -60, top: -60, width: 220, height: 220,
@@ -153,80 +165,76 @@ export default function HomePage() {
                 <span style={{ color: D.ink50, fontSize: 12.5 }}>all-time</span>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {['1D', '1W', '1M', '3M', 'YTD', 'ALL'].map((r, i) => (
-                <button key={r} style={{
-                  background: i === 4 ? D.sage : 'transparent',
-                  border: `1px solid ${i === 4 ? D.sage : D.hairline}`,
-                  color: i === 4 ? D.plumDeep : D.ink70,
-                  padding: '5px 10px', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: FONT_BODY,
-                }}>{r}</button>
-              ))}
-            </div>
           </div>
           <div style={{ marginTop: 18, marginLeft: -8, marginRight: -8 }}>
-            <AreaChart data={portfolioSeries} height={140} color={D.sage}/>
+            <AreaChart
+              data={portfolioSeries}
+              height={140}
+              color={portfolio.totalPnl >= 0 ? D.buy : D.sell}
+            />
           </div>
         </Card>
 
-        <Card padding={22}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <Card padding={22} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
               {accounts.length > 1 ? 'Accounts' : 'Account'}
             </div>
             <button style={{ background: 'none', border: 'none', color: D.sage, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT_BODY }}>+ Deposit</button>
           </div>
 
-          {accounts.length === 0 && (
-            <div style={{ padding: '24px 0', color: D.ink50, fontSize: 13, textAlign: 'center' }}>
-              {loading ? 'Loading…' : 'No accounts yet.'}
-            </div>
-          )}
-
-          {accounts.map((a, i) => {
-            const available = Number(a.balance) || 0;
-            const frozen = Number(a.frozenBalance) || 0;
-            const isPrimary = i === 0;
-            return (
-              <div key={a.accountId} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 0',
-                borderTop: i === 0 ? 'none' : `1px solid ${D.hairline}`,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{
-                    width: 38, height: 38, borderRadius: 10,
-                    background: isPrimary ? D.sageBg : D.surface3,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 13,
-                    color: isPrimary ? D.sage : D.ink70,
-                  }}>{a.currency}</div>
-                  <div>
-                    <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14, color: D.ink }}>
-                      {isPrimary ? 'Primary' : 'Secondary'} · {CURRENCY_LABEL[a.currency] || a.currency}
-                    </div>
-                    {frozen > 0 && (
-                      <div style={{ fontSize: 11.5, color: D.warn, marginTop: 2 }}>
-                        <Money value={frozen} currency={a.currency}/> frozen in open orders
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ width: '90%', margin: '0 auto' }}>
+              {accounts.length === 0 ? (
+                <div style={{ padding: '24px 0', color: D.ink50, fontSize: 13, textAlign: 'center' }}>
+                  {loading ? 'Loading…' : 'No accounts yet.'}
+                </div>
+              ) : (
+                accounts.map((a, i) => {
+                  const available = Number(a.balance) || 0;
+                  const frozen = Number(a.frozenBalance) || 0;
+                  const isPrimary = i === 0;
+                  return (
+                    <div key={a.accountId} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '16px 0',
+                      borderTop: i === 0 ? 'none' : `1px solid ${D.hairline}`,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{
+                          width: 38, height: 38, borderRadius: 10,
+                          background: isPrimary ? D.sageBg : D.surface3,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 13,
+                          color: isPrimary ? D.sage : D.ink70,
+                        }}>{a.currency}</div>
+                        <div>
+                          <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14, color: D.ink }}>
+                            {isPrimary ? 'Primary' : 'Secondary'} · {CURRENCY_LABEL[a.currency] || a.currency}
+                          </div>
+                          {frozen > 0 && (
+                            <div style={{ fontSize: 11.5, color: D.warn, marginTop: 2 }}>
+                              <Money value={frozen} currency={a.currency}/> frozen in open orders
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <Money value={available} currency={a.currency}/>
-                  <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>available</div>
-                </div>
-              </div>
-            );
-          })}
+                      <div style={{ textAlign: 'right' }}>
+                        <Money value={available} currency={a.currency}/>
+                        <div style={{ fontSize: 11, color: D.ink50, marginTop: 1 }}>available</div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </Card>
       </div>
 
-      {/* Holdings + Profile */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, marginBottom: 18 }}>
-        <Card padding={0}>
-          <div style={{ padding: '18px 22px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, marginBottom: 18, alignItems: 'stretch' }}>
+        <Card padding={0} style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+          <div style={{ padding: '18px 22px 14px', flexShrink: 0 }}>
             <div>
               <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>Holdings</div>
               <div style={{ fontSize: 12, color: D.ink50, marginTop: 2 }}>
@@ -240,61 +248,64 @@ export default function HomePage() {
             padding: '10px 22px',
             fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600,
             borderTop: `1px solid ${D.hairline}`, borderBottom: `1px solid ${D.hairline}`,
+            flexShrink: 0,
           }}>
             <div>Asset</div><div>Qty</div><div>Avg cost</div><div>Market price</div>
             <div style={{ textAlign: 'right' }}>Value</div><div style={{ textAlign: 'right' }}>P&amp;L</div>
           </div>
 
-          {portfolio.rows.length === 0 && (
-            <div style={{ padding: '40px 22px', textAlign: 'center', color: D.ink50, fontSize: 13 }}>
-              {loading ? 'Loading holdings…' : 'No holdings yet — place your first order from the Trade tab.'}
-            </div>
-          )}
-
-          {portfolio.rows.map((row, i) => (
-            <div key={row.ticker} style={{
-              display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.9fr 1fr 1fr 0.8fr',
-              padding: '14px 22px', alignItems: 'center',
-              borderBottom: i === portfolio.rows.length - 1 ? 'none' : `1px solid ${D.hairline}`,
-              fontFamily: FONT_BODY, fontSize: 13.5,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                  background: D.surface3,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 11.5,
-                  color: D.ink, letterSpacing: 0.3,
-                }}>{row.ticker.slice(0, 4)}</div>
-                <div>
-                  <div style={{ fontWeight: 600, color: D.ink }}>{row.ticker}</div>
-                  <div style={{ fontSize: 11.5, color: D.ink50 }}>{row.stock?.name || '—'}</div>
+          <div style={{ maxHeight: 145, overflowY: 'auto' }}>
+            {portfolio.rows.length === 0 ? (
+              <div style={{ padding: '40px 22px', textAlign: 'center', color: D.ink50, fontSize: 13 }}>
+                {loading ? 'Loading holdings…' : 'No holdings yet — place your first order from the Trade tab.'}
+              </div>
+            ) : (
+              portfolio.rows.map((row, i) => (
+                <div key={row.ticker} style={{
+                  display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.9fr 1fr 1fr 0.8fr',
+                  padding: '14px 22px', alignItems: 'center',
+                  borderBottom: i === portfolio.rows.length - 1 ? 'none' : `1px solid ${D.hairline}`,
+                  fontFamily: FONT_BODY, fontSize: 13.5,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      background: D.surface3,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 11.5,
+                      color: D.ink, letterSpacing: 0.3,
+                    }}>{row.ticker.slice(0, 4)}</div>
+                    <div>
+                      <div style={{ fontWeight: 600, color: D.ink }}>{row.ticker}</div>
+                      <div style={{ fontSize: 11.5, color: D.ink50 }}>{row.stock?.name || '—'}</div>
+                    </div>
+                  </div>
+                  <div style={{ color: D.ink, fontVariantNumeric: 'tabular-nums' }}>{row.amount}</div>
+                  <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>${row.avgCost.toFixed(2)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>${(row.stock?.price ?? row.avgCost).toFixed(2)}</span>
+                    <Sparkline data={genSeries(row.ticker.charCodeAt(0) + i * 17, 24, 100, row.stock?.volatility || 0.03)} width={56} height={20}/>
+                  </div>
+                  <div style={{ textAlign: 'right', color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                    ${row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: row.pnl >= 0 ? D.buy : D.sell, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                      {row.pnl >= 0 ? '+' : '−'}${Math.abs(row.pnl).toFixed(2)}
+                    </div>
+                    <div style={{ fontSize: 11, color: row.pnl >= 0 ? D.buy : D.sell, opacity: 0.8 }}>
+                      {row.pnl >= 0 ? '+' : '−'}{Math.abs(row.pnlPct).toFixed(2)}%
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div style={{ color: D.ink, fontVariantNumeric: 'tabular-nums' }}>{row.amount}</div>
-              <div style={{ color: D.ink70, fontVariantNumeric: 'tabular-nums' }}>${row.avgCost.toFixed(2)}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>${(row.stock?.price ?? row.avgCost).toFixed(2)}</span>
-                <Sparkline data={genSeries(row.ticker.charCodeAt(0) + i * 17, 24, 100, row.stock?.volatility || 0.03)} width={56} height={20}/>
-              </div>
-              <div style={{ textAlign: 'right', color: D.ink, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                ${row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ color: row.pnl >= 0 ? D.buy : D.sell, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                  {row.pnl >= 0 ? '+' : '−'}${Math.abs(row.pnl).toFixed(2)}
-                </div>
-                <div style={{ fontSize: 11, color: row.pnl >= 0 ? D.buy : D.sell, opacity: 0.8 }}>
-                  {row.pnl >= 0 ? '+' : '−'}{Math.abs(row.pnlPct).toFixed(2)}%
-                </div>
-              </div>
-            </div>
-          ))}
+              ))
+            )}
+          </div>
         </Card>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <Card padding={22}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+          <Card padding={22} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
               <div style={{
                 width: 52, height: 52, borderRadius: 26,
                 background: `linear-gradient(135deg, ${D.sage}, ${D.teal})`,
@@ -306,15 +317,22 @@ export default function HomePage() {
                 <div style={{ fontSize: 12, color: D.ink50 }}>{user?.email || '—'}</div>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-              <Stat label="Trades" value={transactions.length}/>
-              <Stat label="Realised P&L" value={`$${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
-              <Stat label="Holdings" value={portfolio.rows.length}/>
-              <Stat label={`Cash · ${primaryCurrency}`} value={
-                primaryCurrency === 'USD' ? `$${primaryAvailable.toFixed(0)}`
-                : primaryCurrency === 'RON' ? `lei ${primaryAvailable.toFixed(0)}`
-                : `${primaryAvailable.toFixed(0)} ${primaryCurrency}`
-              }/>
+            
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <div style={{ width: '80%', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  <Stat label="Trades" value={transactions.length}/>
+                  <Stat label="Realised P&L" value={`$${portfolio.totalPnl.toFixed(0)}`} tone={portfolio.totalPnl >= 0 ? D.sage : D.sell}/>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20, textAlign: 'right' }}>
+                  <Stat label="Holdings" value={portfolio.rows.length}/>
+                  <Stat label={`Cash · ${primaryCurrency}`} value={
+                    primaryCurrency === 'USD' ? `$${primaryAvailable.toFixed(0)}`
+                    : primaryCurrency === 'RON' ? `lei ${primaryAvailable.toFixed(0)}`
+                    : `${primaryAvailable.toFixed(0)} ${primaryCurrency}`
+                  }/>
+                </div>
+              </div>
             </div>
           </Card>
         </div>
@@ -374,3 +392,4 @@ export default function HomePage() {
     </AppShell>
   );
 }
+

@@ -243,16 +243,6 @@ export default function TradePage() {
 
             {/* Range selector */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {['1D', '1W', '1M', '3M', '1Y'].map(r => (
-                <button key={r} onClick={() => setRange(r)} style={{
-                  padding: '4px 10px',
-                  background: range === r ? D.surface3 : 'transparent',
-                  border: `1px solid ${range === r ? D.hairline2 : D.hairline}`,
-                  color: range === r ? D.ink : D.ink50,
-                  borderRadius: 6, fontFamily: FONT_BODY, fontWeight: 600,
-                  fontSize: 11, cursor: 'pointer',
-                }}>{r}</button>
-              ))}
               {livePoints.length > 0 && (
                 <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: D.spring }}>
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: D.spring, boxShadow: `0 0 6px ${D.spring}`, display: 'inline-block' }}/>

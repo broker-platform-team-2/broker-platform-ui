@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
 import { useAuth } from '../../context/AuthContext';
@@ -147,7 +147,7 @@ function noteText(n) {
 if (typeof document !== 'undefined' && !document.getElementById('toast-keyframes')) {
   const s = document.createElement('style');
   s.id = 'toast-keyframes';
-  s.textContent = '@keyframes fadeSlideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }';
+  s.textContent = '@keyframes fadeSlideIn { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }';
   document.head.appendChild(s);
 }
 
@@ -157,6 +157,7 @@ const TOAST_DURATION = 6000; // ms before auto-dismiss
 function ToastStack() {
   const [toasts, setToasts] = useState([]);
   const timers = useRef({});
+  const notifiedPartial = useRef(new Set());
 
   // Keep a live ref to marketStatus so the delayed MARKET_EVENT toast can read
   // the freshly-fetched value (the context updates it ~500 ms after the event)
@@ -172,6 +173,19 @@ function ToastStack() {
 
   useNotificationMessage((msg) => {
     if (!['ORDER_UPDATE', 'MARKET_EVENT'].includes(msg?.type)) return;
+
+    if (msg.type === 'ORDER_UPDATE') {
+      const p = msg.payload ?? msg.data ?? msg;
+      const orderId = p.order_id ?? p.orderId ?? '';
+      const status = (p.status ?? '').toUpperCase();
+      if (status === 'PARTIALLY_FILLED' || status === 'PARTIAL') {
+        if (notifiedPartial.current.has(orderId)) return;
+        notifiedPartial.current.add(orderId);
+      } else {
+        notifiedPartial.current.delete(orderId);
+      }
+    }
+
     const id = Date.now() + Math.random();
 
     if (msg.type === 'MARKET_EVENT') {
@@ -182,12 +196,12 @@ function ToastStack() {
           ? `Market is now ${ms.isOpen ? 'OPEN 🟢' : 'CLOSED 🔴'}`
           : 'Market status changed';
         const toast = { id, type: 'MARKET_EVENT', text, color: noteColor('MARKET_EVENT') };
-        setToasts(prev => [...prev.slice(-4), toast]);
+        setToasts(prev => [toast, ...prev.slice(0, 4)]);
         timers.current[id] = setTimeout(() => dismiss(id), TOAST_DURATION);
       }, 800);
     } else {
       const toast = { id, type: msg.type, text: noteText(msg), color: noteColor(msg.type) };
-      setToasts(prev => [...prev.slice(-4), toast]);
+      setToasts(prev => [toast, ...prev.slice(0, 4)]);
       timers.current[id] = setTimeout(() => dismiss(id), TOAST_DURATION);
     }
   });
@@ -198,12 +212,17 @@ function ToastStack() {
   if (toasts.length === 0) return null;
   return (
     <div style={{
-      position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
-      display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end',
+      position: 'fixed', top: 24, right: 24, zIndex: 1000,
+      width: 340, height: 0,
     }}>
-      {toasts.map(t => (
+      {toasts.map((t, i) => (
         <div key={t.id} style={{
-          minWidth: 260, maxWidth: 360,
+          position: 'absolute', top: i * 10, right: 0, width: '100%',
+          zIndex: toasts.length - i,
+          transform: `scale(${1 - i * 0.04})`,
+          transformOrigin: 'top right',
+          opacity: Math.max(0.5, 1 - i * 0.18),
+          transition: 'top 0.25s ease, transform 0.25s ease, opacity 0.25s ease',
           background: D.surface2,
           border: `1px solid ${t.color}44`,
           borderLeft: `4px solid ${t.color}`,
@@ -211,7 +230,7 @@ function ToastStack() {
           padding: '12px 14px',
           boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
           display: 'flex', alignItems: 'flex-start', gap: 10,
-          animation: 'fadeSlideIn 0.2s ease',
+          animation: i === 0 ? 'fadeSlideIn 0.2s ease' : 'none',
         }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 11, color: t.color, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
@@ -243,14 +262,35 @@ function formatAmount(amount, currency) {
 
 const TopBar = ({ title, subtitle, notifications, onClearNotifications }) => {
   const { user } = useAuth();
-  const { activeAccount } = useAccount();
+  const { activeAccount, refreshAccounts } = useAccount();
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : 'WB';
   const [showNotes, setShowNotes] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isMarkets = location.pathname.startsWith('/markets');
+  const searchQuery = isMarkets ? (searchParams.get('q') || '') : '';
+
+  const handleSearch = (e) => {
+    const val = e.target.value;
+    const p = new URLSearchParams(searchParams);
+    if (val) p.set('q', val); else p.delete('q');
+    navigate(`/markets?${p.toString()}`, { replace: true });
+  };
+
+  useEffect(() => {
+    const id = setInterval(refreshAccounts, 15_000);
+    return () => clearInterval(id);
+  }, [refreshAccounts]);
+
+  useNotificationMessage((msg) => {
+    if (msg?.type === 'ORDER_UPDATE') refreshAccounts();
+  });
 
   return (
     <header style={{
       display: 'flex', alignItems: 'center', gap: 16,
-      padding: '14px 24px',
+      padding: '14px 24px 14px 48px',
       borderBottom: `1px solid ${D.hairline}`,
       background: D.bg,
     }}>
@@ -259,24 +299,33 @@ const TopBar = ({ title, subtitle, notifications, onClearNotifications }) => {
         {subtitle && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: D.ink50, marginTop: 1 }}>{subtitle}</div>}
       </div>
 
-      <div style={{ flex: 1, maxWidth: 380, marginLeft: 24 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: D.surface, border: `1px solid ${D.hairline}`,
-          borderRadius: 10, padding: '8px 12px',
-          color: D.ink50,
-        }}>
-          <NavIcon name="search"/>
-          <input
-            placeholder="Search ticker, company, sector…"
-            style={{
-              flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              color: D.ink, fontFamily: FONT_BODY, fontSize: 13.5,
-            }}
-          />
-          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, padding: '2px 6px', background: D.surface3, borderRadius: 4, color: D.ink50 }}>⌘K</span>
+      {isMarkets && (
+        <div style={{ flex: 1, maxWidth: 380, marginLeft: 24 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: D.surface, border: `1px solid ${searchQuery ? D.sage : D.hairline}`,
+            borderRadius: 10, padding: '8px 12px',
+            color: D.ink50, transition: 'border-color 0.15s',
+          }}>
+            <NavIcon name="search"/>
+            <input
+              value={searchQuery}
+              onChange={handleSearch}
+              placeholder="Search ticker or company…"
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                color: D.ink, fontFamily: FONT_BODY, fontSize: 13.5,
+              }}
+            />
+            {searchQuery && (
+              <button onClick={() => navigate('/markets', { replace: true })} style={{
+                background: 'transparent', border: 'none', color: D.ink50,
+                cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0,
+              }}>×</button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         {activeAccount && (

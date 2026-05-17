@@ -436,45 +436,22 @@ export default function WalletPage() {
   const activeCurrency = account?.currency || 'EUR';
   const sym = SYMBOL[activeCurrency] || `${activeCurrency} `;
 
-  // Refresh balance + fund history together so everything stays in sync.
-  const refresh = useCallback(async () => {
+  const refreshAll = useCallback(async () => {
     await refreshAccounts();
     if (!activeCurrency) return;
-    try {
-      const ops = await getFundHistory(activeCurrency);
-      setFundOps(ops);
-    } catch { /* silent */ }
-  }, [activeCurrency, refreshAccounts]);
+    getFundHistory(activeCurrency).then(setFundOps).catch(() => {});
+  }, [refreshAccounts, activeCurrency]);
 
-  // Initial load
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
-  // Poll every 15 s — picks up bot trade proceeds even without a WS event
   useEffect(() => {
-    const id = setInterval(refresh, 15_000);
+    const id = setInterval(refreshAll, 15_000);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [refreshAll]);
 
-  // Refresh immediately when any order is filled/cancelled by the bot
-  useNotificationMessage(msg => {
-    if (msg?.type === 'ORDER_UPDATE') refresh();
+  useNotificationMessage((msg) => {
+    if (msg?.type === 'ORDER_UPDATE') refreshAll();
   });
-
-  // ── after manual deposit / withdraw, refresh everything ──────────────────
-  const handleDepositConfirm = async (amount) => {
-    await deposit(activeCurrency, amount);
-    await refresh();
-  };
-
-  const handleWithdrawConfirm = async (amount) => {
-    await deduct(activeCurrency, amount);
-    await refresh();
-  };
-
-  const handleAddAccountConfirm = async (currency) => {
-    await createAccount(currency);
-    await refresh();
-  };
 
   const movements = fundOps.filter(op => {
     if (tab === 'all') return true;
@@ -615,7 +592,7 @@ export default function WalletPage() {
         <Card padding={22}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
             <div>
-              <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>Account balance · 30 days</div>
+              <div style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>Account balance</div>
               <div style={{ fontSize: 12, color: D.ink50, marginTop: 3 }}>Net cash position over time</div>
             </div>
             <div style={{ textAlign: 'right' }}>
