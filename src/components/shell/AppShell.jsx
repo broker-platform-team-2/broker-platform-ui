@@ -243,9 +243,18 @@ function formatAmount(amount, currency) {
 
 const TopBar = ({ title, subtitle, notifications, onClearNotifications }) => {
   const { user } = useAuth();
-  const { activeAccount } = useAccount();
+  const { activeAccount, refreshAccounts } = useAccount();
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : 'WB';
   const [showNotes, setShowNotes] = useState(false);
+
+  useEffect(() => {
+    const id = setInterval(refreshAccounts, 15_000);
+    return () => clearInterval(id);
+  }, [refreshAccounts]);
+
+  useNotificationMessage((msg) => {
+    if (msg?.type === 'ORDER_UPDATE') refreshAccounts();
+  });
 
   return (
     <header style={{

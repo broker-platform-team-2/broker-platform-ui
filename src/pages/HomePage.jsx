@@ -42,7 +42,6 @@ export default function HomePage() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [baseStockMap, setBaseStockMap] = useState({});
-  const [historyMap, setHistoryMap] = useState({});
   const [sessionPoints, setSessionPoints] = useState([]);
 
   const livePrices = useLivePrices();
@@ -120,41 +119,19 @@ export default function HomePage() {
   }, [holdings, stockMap]);
 
   const portfolioSeries = useMemo(() => {
-    const tickers = portfolio.rows.map(r => r.ticker);
-    const available = tickers.filter(t => historyMap[t]?.length > 0);
-    
-    let base;
-    if (available.length === 0) {
-      base = genSeries(42, 80, 100, 0.01).map(v => v * Math.max(100, portfolio.totalValue) / 100);
-    } else {
-      const maxLength = Math.max(...available.map(t => historyMap[t].length));
-      base = new Array(maxLength).fill(0);
-      portfolio.rows.forEach(row => {
-        const hist = historyMap[row.ticker];
-        if (!hist) return;
-        const offset = maxLength - hist.length;
-        for (let i = 0; i < maxLength; i++) {
-          const val = i < offset ? hist[0] : hist[i - offset];
-          base[i] += row.amount * val;
-        }
-      });
-    }
-
-    // Combine historical data with session points sampled since page load
-    return [...base, ...sessionPoints, portfolio.totalValue].slice(-100);
-  }, [portfolio.rows, historyMap, sessionPoints, portfolio.totalValue]);
+    if (portfolio.totalValue === 0) return [];
+    return sessionPoints.length > 0
+      ? [...sessionPoints, portfolio.totalValue]
+      : [portfolio.totalValue, portfolio.totalValue];
+  }, [sessionPoints, portfolio.totalValue]);
 
   useEffect(() => {
     if (loading || portfolio.totalValue === 0) return;
-    const timer = setInterval(() => {
-      setSessionPoints(prev => {
-        const last = prev[prev.length - 1];
-        // Only add if value changed or every few samples to ensure visual "flow"
-        if (last === portfolio.totalValue && prev.length > 0 && Math.random() > 0.3) return prev;
-        return [...prev, portfolio.totalValue].slice(-100);
-      });
-    }, 3000);
-    return () => clearInterval(timer);
+    setSessionPoints(prev => {
+      const last = prev[prev.length - 1];
+      if (last === portfolio.totalValue) return prev;
+      return [...prev, portfolio.totalValue].slice(-200);
+    });
   }, [loading, portfolio.totalValue]);
 
   const primary = accounts.find(a => a.currency === 'USD') || accounts[0];
@@ -190,11 +167,10 @@ export default function HomePage() {
             </div>
           </div>
           <div style={{ marginTop: 18, marginLeft: -8, marginRight: -8 }}>
-            <AreaChart 
-              data={portfolioSeries} 
-              height={140} 
-              color={portfolio.totalPnl >= 0 ? D.buy : D.sell} 
-              min={0}
+            <AreaChart
+              data={portfolioSeries}
+              height={140}
+              color={portfolio.totalPnl >= 0 ? D.buy : D.sell}
             />
           </div>
         </Card>

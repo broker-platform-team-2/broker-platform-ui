@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, AreaChart } from '../components/shared/dark-ui';
 import { deposit, deduct, createAccount, getFundHistory } from '../api/accounts';
 import { useAccount } from '../context/AccountContext';
+import { useNotificationMessage } from '../context/NotificationsContext';
 
 function FundsModal({ mode, account, onConfirm, onClose }) {
   const isDeposit = mode === 'deposit';
@@ -435,12 +436,22 @@ export default function WalletPage() {
   const activeCurrency = account?.currency || 'EUR';
   const sym = SYMBOL[activeCurrency] || `${activeCurrency} `;
 
-  useEffect(() => {
+  const refreshAll = useCallback(async () => {
+    await refreshAccounts();
     if (!activeCurrency) return;
-    getFundHistory(activeCurrency)
-      .then(setFundOps)
-      .catch(() => setFundOps([]));
-  }, [activeCurrency, account?.balance]);
+    getFundHistory(activeCurrency).then(setFundOps).catch(() => {});
+  }, [refreshAccounts, activeCurrency]);
+
+  useEffect(() => { refreshAll(); }, [refreshAll]);
+
+  useEffect(() => {
+    const id = setInterval(refreshAll, 15_000);
+    return () => clearInterval(id);
+  }, [refreshAll]);
+
+  useNotificationMessage((msg) => {
+    if (msg?.type === 'ORDER_UPDATE') refreshAll();
+  });
 
   const movements = fundOps.filter(op => {
     if (tab === 'all') return true;
