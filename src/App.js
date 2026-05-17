@@ -11,6 +11,7 @@ import WalletPage from './pages/WalletPage';
 import OrdersPage from './pages/OrdersPage';
 import ProfilePage from './pages/ProfilePage';
 import OptionsPage from './pages/OptionsPage';
+import BotPage from './pages/BotPage';
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/wallet"  element={<WalletPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/options" element={<OptionsPage />} />
+        <Route path="/bot"     element={<BotPage />} />
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Route>
     </Routes>

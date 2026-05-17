@@ -200,10 +200,20 @@ export default function OptionsPage() {
 
   const canAfford = side === 'BUY' ? totalInAccountCurrency <= availBalance : true;
   const canSell   = side === 'SELL' ? qty <= ownedQty : true;
-  const valid = qty > 0 && canAfford && canSell && !!contract && !isExpired(contract?.expiry_time ?? contract?.expiryTime);
 
   const isCall = contract ? (contract.option_type ?? contract.optionType) === 'CALL' : true;
   const days = contract ? daysUntil(contract.expiry_time ?? contract.expiryTime) : null;
+
+  const underlyingTicker = contract ? (contract.underlying_ticker ?? contract.underlyingTicker) : null;
+  const canBuyPut = (!isCall && side === 'BUY')
+    ? holdings.some(h =>
+        (h.instrumentId || h.ticker) === underlyingTicker &&
+        (h.instrumentType || h.type) === 'STOCK' &&
+        Number(h.amount || 0) > 0
+      )
+    : true;
+
+  const valid = qty > 0 && canAfford && canSell && canBuyPut && !!contract && !isExpired(contract?.expiry_time ?? contract?.expiryTime);
 
   async function submit() {
     if (!contract) return;
@@ -533,6 +543,11 @@ export default function OptionsPage() {
                 {!canSell && side === 'SELL' && (
                   <div style={{ background: D.sellBg, color: D.sell, padding: '10px 12px', borderRadius: 9, fontSize: 12, marginBottom: 12, border: `1px solid ${D.sell}33` }}>
                     ⚠ You hold {ownedQty} contract{ownedQty !== 1 ? 's' : ''}. Cannot sell {qty}.
+                  </div>
+                )}
+                {!canBuyPut && !isCall && side === 'BUY' && (
+                  <div style={{ background: D.sellBg, color: D.sell, padding: '10px 12px', borderRadius: 9, fontSize: 12, marginBottom: 12, border: `1px solid ${D.sell}33` }}>
+                    ⚠ You must own {underlyingTicker} shares to buy a PUT option on it.
                   </div>
                 )}
                 {error && (
