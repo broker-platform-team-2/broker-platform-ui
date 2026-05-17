@@ -76,8 +76,6 @@ export default function TradePage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef(null);
 
-  const [trades, setTrades] = useState([]);
-
   const { accounts, activeId, setActiveId, activeAccount } = useAccount();
   const [holdings, setHoldings] = useState([]);
 
@@ -92,7 +90,7 @@ export default function TradePage() {
       })
       .catch(() => {})
       .finally(() => setLoadingStocks(false));
-  }, [initialTicker]);
+  }, []);
 
   useEffect(() => {
     if (!ticker) return;
@@ -119,26 +117,6 @@ export default function TradePage() {
     };
     setTimeSales(prev => [entry, ...prev.slice(0, 199)]); // newest first, cap at 200
   });
-
-  // Simulate live trades
-  useEffect(() => {
-    if (!ticker || loadingStocks) return;
-    const stock = stocks.find(s => s.ticker === ticker);
-    if (!stock) return;
-
-    const interval = setInterval(() => {
-      const side = Math.random() > 0.5 ? 'BUY' : 'SELL';
-      const offset = (Math.random() - 0.5) * 0.1;
-      const price = stock.price + offset;
-      const qty = Math.floor(Math.random() * 500) + 10;
-      const now = new Date();
-      const time = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-      setTrades(prev => [{ id: Date.now(), time, price, qty, side }, ...prev].slice(0, 15));
-    }, 2000 + Math.random() * 3000);
-
-    return () => clearInterval(interval);
-  }, [ticker, stocks, loadingStocks]);
 
   useEffect(() => {
     getMyHoldings().then(h => setHoldings(h || [])).catch(() => {});
@@ -235,40 +213,36 @@ export default function TradePage() {
 
   return (
     <AppShell title="Trade" subtitle="Place orders on the Wakibi exchange">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: 18, alignItems: 'stretch' }}>
-        {/* Graphic representation card */}
-        <Card padding={22} style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: D.surface3,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, color: D.ink, letterSpacing: 0.2,
-              }}>{stock.ticker.slice(0, 4)}</div>
-              <div>
-                <select value={stock.ticker} onChange={(e) => setTicker(e.target.value)} style={{
-                  background: 'transparent', border: 'none',
-                  fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 22, color: D.ink, letterSpacing: '-0.01em',
-                  cursor: 'pointer', appearance: 'none', paddingRight: 24,
-                }}>
-                  {stocks.map(s => <option key={s.ticker} value={s.ticker} style={{ background: D.surface2, color: D.ink }}>{s.ticker}</option>)}
-                </select>
-                <div style={{ fontSize: 13, color: D.ink50, marginTop: 2 }}>{stock.name} · {stock.sector}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: 18 }}>
+        {/* Left: market info */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Card padding={22}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 12, background: D.surface3,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 14, color: D.ink, letterSpacing: 0.2,
+                }}>{stock.ticker.slice(0, 4)}</div>
+                <div>
+                  <select value={stock.ticker} onChange={(e) => setTicker(e.target.value)} style={{
+                    background: 'transparent', border: 'none',
+                    fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 22, color: D.ink, letterSpacing: '-0.01em',
+                    cursor: 'pointer', appearance: 'none', paddingRight: 24,
+                  }}>
+                    {stocks.map(s => <option key={s.ticker} value={s.ticker} style={{ background: D.surface2, color: D.ink }}>{s.ticker}</option>)}
+                  </select>
+                  <div style={{ fontSize: 13, color: D.ink50, marginTop: 2 }}>{stock.name} · {stock.sector}</div>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <Money value={stock.price} currency="USD" big/>
+                <div style={{ marginTop: 4 }}><Delta value={stock.change} pct={stock.changePct}/></div>
               </div>
             </div>
 
             {/* Range selector */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {['1D', '1W', '1M', '3M', '1Y'].map(r => (
-                <button key={r} onClick={() => setRange(r)} style={{
-                  padding: '4px 10px',
-                  background: range === r ? D.surface3 : 'transparent',
-                  border: `1px solid ${range === r ? D.hairline2 : D.hairline}`,
-                  color: range === r ? D.ink : D.ink50,
-                  borderRadius: 6, fontFamily: FONT_BODY, fontWeight: 600,
-                  fontSize: 11, cursor: 'pointer',
-                }}>{r}</button>
-              ))}
               {livePoints.length > 0 && (
                 <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: D.spring }}>
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: D.spring, boxShadow: `0 0 6px ${D.spring}`, display: 'inline-block' }}/>
@@ -280,11 +254,14 @@ export default function TradePage() {
             <div style={{ marginLeft: -8, marginRight: -8 }}>
               <AreaChart data={chartData} height={140} color={chartColor}/>
             </div>
-          </div>
 
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', marginLeft: -8, marginRight: -8, minHeight: 320 }}>
-            <AreaChart data={chartData} height={360} color={stock.changePct >= 0 ? D.sage : D.sell}/>
-          </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginTop: 18, paddingTop: 18, borderTop: `1px solid ${D.hairline}` }}>
+              <KPI label="Bid" value={stock.price > 0 ? `$${(stock.price - 0.05).toFixed(2)}` : '—'}/>
+              <KPI label="Ask" value={stock.price > 0 ? `$${(stock.price + 0.05).toFixed(2)}` : '—'}/>
+              <KPI label="Volume" value={stock.volume > 0 ? `${(stock.volume / 1000).toFixed(1)}k` : '—'}/>
+              <KPI label="Volatility" value={stock.volatility > 0 ? `${(stock.volatility * 100).toFixed(1)}%` : '—'}/>
+            </div>
+          </Card>
 
           <Card padding={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Header */}
@@ -340,7 +317,7 @@ export default function TradePage() {
         </div>
 
         {/* Right: order ticket */}
-        <Card padding={0} style={{ alignSelf: 'flex-start', position: 'sticky', top: 0, gridRow: 'span 2' }}>
+        <Card padding={0} style={{ alignSelf: 'flex-start', position: 'sticky', top: 0 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: 16, gap: 8 }}>
             <button onClick={() => setSide('BUY')} style={{
               padding: '12px',
@@ -562,7 +539,6 @@ export default function TradePage() {
             </div>
           </div>
         </Card>
-
       </div>
     </AppShell>
   );
