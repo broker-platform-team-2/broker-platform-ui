@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, AreaChart } from '../components/shared/dark-ui';
 import { deposit, deduct, createAccount, getFundHistory } from '../api/accounts';
 import { useAccount } from '../context/AccountContext';
+import { useNotificationMessage } from '../context/NotificationsContext';
 
 function FundsModal({ mode, account, onConfirm, onClose }) {
   const isDeposit = mode === 'deposit';
@@ -435,12 +436,45 @@ export default function WalletPage() {
   const activeCurrency = account?.currency || 'EUR';
   const sym = SYMBOL[activeCurrency] || `${activeCurrency} `;
 
-  useEffect(() => {
+  // Refresh balance + fund history together so everything stays in sync.
+  const refresh = useCallback(async () => {
+    await refreshAccounts();
     if (!activeCurrency) return;
-    getFundHistory(activeCurrency)
-      .then(setFundOps)
-      .catch(() => setFundOps([]));
-  }, [activeCurrency, account?.balance]);
+    try {
+      const ops = await getFundHistory(activeCurrency);
+      setFundOps(ops);
+    } catch { /* silent */ }
+  }, [activeCurrency, refreshAccounts]);
+
+  // Initial load
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Poll every 15 s — picks up bot trade proceeds even without a WS event
+  useEffect(() => {
+    const id = setInterval(refresh, 15_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  // Refresh immediately when any order is filled/cancelled by the bot
+  useNotificationMessage(msg => {
+    if (msg?.type === 'ORDER_UPDATE') refresh();
+  });
+
+  // ── after manual deposit / withdraw, refresh everything ──────────────────
+  const handleDepositConfirm = async (amount) => {
+    await deposit(activeCurrency, amount);
+    await refresh();
+  };
+
+  const handleWithdrawConfirm = async (amount) => {
+    await deduct(activeCurrency, amount);
+    await refresh();
+  };
+
+  const handleAddAccountConfirm = async (currency) => {
+    await createAccount(currency);
+    await refresh();
+  };
 
   const movements = fundOps.filter(op => {
     if (tab === 'all') return true;
@@ -457,21 +491,6 @@ export default function WalletPage() {
   const totalWithdrawn = fundOps
     .filter(op => op.operationType === 'WITHDRAW')
     .reduce((s, op) => s + Number(op.amount), 0);
-
-  const handleDepositConfirm = async (amount) => {
-    await deposit(activeCurrency, amount);
-    await refreshAccounts();
-  };
-
-  const handleWithdrawConfirm = async (amount) => {
-    await deduct(activeCurrency, amount);
-    await refreshAccounts();
-  };
-
-  const handleAddAccountConfirm = async (currency) => {
-    await createAccount(currency);
-    await refreshAccounts();
-  };
 
   return (
     <AppShell title="Wallet" subtitle="Accounts, deposits & transfers">
