@@ -11,7 +11,9 @@ const NAV = [
   { id: 'stocks', label: 'Markets', icon: 'chart',  path: '/markets' },
   { id: 'trade',  label: 'Trade',   icon: 'arrows', path: '/trade' },
   { id: 'orders', label: 'Orders',  icon: 'list',   path: '/orders' },
-  { id: 'wallet', label: 'Wallet',  icon: 'wallet', path: '/wallet' },
+  { id: 'wallet',   label: 'Wallet',  icon: 'wallet',   path: '/wallet' },
+  { id: 'options',  label: 'Options', icon: 'options',  path: '/options' },
+  { id: 'bot',      label: 'Bot',     icon: 'bot',      path: '/bot' },
 ];
 
 
@@ -21,8 +23,10 @@ const NavIcon = ({ name }) => {
   if (name === 'chart')  return <svg {...p}><path d="M3 14l4-4 3 3 5-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 16h12" stroke="currentColor" strokeWidth="1.5"/></svg>;
   if (name === 'arrows') return <svg {...p}><path d="M4 6h10l-3-3M14 12H4l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
   if (name === 'list')   return <svg {...p}><path d="M5 5h10M5 9h10M5 13h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
-  if (name === 'wallet') return <svg {...p}><rect x="2.5" y="5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 8h13" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="11" r="0.8" fill="currentColor"/></svg>;
-  if (name === 'search') return <svg {...p}><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.5"/><path d="M12 12l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (name === 'wallet')  return <svg {...p}><rect x="2.5" y="5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 8h13" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="11" r="0.8" fill="currentColor"/></svg>;
+  if (name === 'options') return <svg {...p}><rect x="3" y="3" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5"/><rect x="10" y="3" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5"/><rect x="3" y="10" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M10.5 12.5h4M12.5 10.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (name === 'bot')     return <svg {...p}><rect x="3" y="5" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 9h.5M10.5 9h.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M9 5V3M6 14l-1 1M12 14l1 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (name === 'search')  return <svg {...p}><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.5"/><path d="M12 12l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
   if (name === 'bell')   return <svg {...p}><path d="M5 8a4 4 0 1 1 8 0c0 3 1 4 1 4H4s1-1 1-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7.5 14a1.5 1.5 0 0 0 3 0" stroke="currentColor" strokeWidth="1.5"/></svg>;
   return null;
 };
