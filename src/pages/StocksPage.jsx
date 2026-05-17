@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill, Money, Delta, AreaChart, KPI, seedRand } from '../components/shared/dark-ui';
@@ -6,6 +7,9 @@ import { getStocks, getOrderBook, getStockHistory } from '../api/market';
 import { useLivePrices } from '../context/NotificationsContext';
 
 export default function StocksPage() {
+  const [searchParams] = useSearchParams();
+  const searchQuery = (searchParams.get('q') || '').toLowerCase().trim();
+
   const [baseStocks, setBaseStocks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -103,7 +107,11 @@ export default function StocksPage() {
   }
 
   const sectors = ['All', ...new Set(stocks.map(s => s.sector))];
-  const filtered = stocks.filter(s => filter === 'All' || s.sector === filter);
+  const filtered = stocks.filter(s => {
+    if (filter !== 'All' && s.sector !== filter) return false;
+    if (!searchQuery) return true;
+    return s.ticker.toLowerCase().includes(searchQuery) || s.name.toLowerCase().includes(searchQuery);
+  });
 
   return (
     <AppShell title="Markets" subtitle={`Live · Wakibi Exchange · ${stocks.length} listed equities`}>
@@ -188,7 +196,7 @@ export default function StocksPage() {
                 fontSize: 11, color: D.ink70, display: 'flex', alignItems: 'center', gap: 6,
               }}>
                 <span style={{ width: 18, height: 2, borderTop: `2px dashed ${D.spring}` }}/>
-                ML forecast · 7d
+                ML forecast
               </div>
             </div>
           </Card>
@@ -216,7 +224,7 @@ export default function StocksPage() {
                 </svg>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>Algorithmic forecast · 7-day</div>
+                <div style={{ fontSize: 11, color: D.ink50, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>Algorithmic forecast</div>
                 <div style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 16, color: D.ink, letterSpacing: '-0.01em' }}>
                   Target <span style={{ color: D.spring }}>${(stock.price * (1 + (stock.changePct || 0) / 100 * 1.5)).toFixed(2)}</span>
                   <span style={{ color: D.ink50, fontSize: 13, fontWeight: 400, marginLeft: 8 }}></span>
