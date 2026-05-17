@@ -1,70 +1,139 @@
-# Getting Started with Create React App
+# broker-platform-ui
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 19 frontend for the Lynx broker platform (branded **Wakibi Trade**). Provides a dark-themed trading interface with real-time price feeds, order management, multi-currency accounts, options trading, and an automated trading bot subscription.
 
-## Available Scripts
+## Tech Stack
 
-In the project directory, you can run:
+- **React 19** + React Router DOM 7
+- **Axios** — REST API client with JWT interceptors
+- **WebSocket** (native browser) — live price updates and order notifications
+- **Create React App** (react-scripts 5)
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- Node.js 16+
+- A running instance of `broker-platform-core` (user-gateway on port 8180, notification-service on port 8188)
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Getting Started
 
-### `npm test`
+```bash
+npm install
+npm start       # dev server at http://localhost:3000
+npm run build   # production build to /build
+npm test        # run tests
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Environment Variables
 
-### `npm run build`
+Create a `.env` file in the project root:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```env
+REACT_APP_API_URL=http://localhost:8180
+REACT_APP_WS_URL=ws://localhost:8188/ws
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+| Variable | Description |
+|---|---|
+| `REACT_APP_API_URL` | Base URL for all REST calls (user-gateway) |
+| `REACT_APP_WS_URL` | WebSocket URL for live notifications and price feeds |
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Project Structure
 
-### `npm run eject`
+```
+src/
+├── api/                        # Axios wrappers — one file per backend resource
+│   ├── client.js               # Axios instance, Bearer token injection, 401 handling
+│   ├── auth.js                 # login, register, forgotPassword, resetPassword, changePassword
+│   ├── accounts.js             # getMyAccounts, deposit, deduct, createAccount, getFundHistory
+│   ├── holdings.js             # getMyHoldings
+│   ├── orders.js               # placeOrder, cancelOrder, cancelOrderByTransactionId
+│   ├── transactions.js         # getMyTransactions
+│   ├── market.js               # getStocks, getOrderBook, getStockHistory, getMarketStatus
+│   ├── options.js              # getOptions
+│   └── bot.js                  # getBotStatus, subscribeBot, startBot, stopBot
+├── context/
+│   ├── AuthContext.jsx         # user state, login/register/logout, token in localStorage
+│   ├── AccountContext.jsx      # multi-account selection, persists active account
+│   └── NotificationsContext.js # single WebSocket connection, price feed, toast queue
+├── hooks/
+│   └── useNotifications.js     # subscribe to WebSocket messages without opening a new connection
+├── pages/
+│   ├── LandingPage.jsx         # public marketing page
+│   ├── AuthPage.jsx            # login / signup / forgot-password (all in one)
+│   ├── HomePage.jsx            # portfolio dashboard
+│   ├── StocksPage.jsx          # market browser + order book
+│   ├── TradePage.jsx           # order ticket (stocks)
+│   ├── OrdersPage.jsx          # order history + cancellation
+│   ├── OptionsPage.jsx         # options chain + order ticket
+│   ├── WalletPage.jsx          # multi-currency accounts, deposit/withdraw, cashflow
+│   ├── BotPage.jsx             # trading bot subscription + start/stop
+│   └── ProfilePage.jsx         # username, email, change password
+├── components/
+│   ├── shell/AppShell.jsx      # sidebar, topbar, notifications bell, toast stack
+│   ├── auth/                   # BrandPanel, form inputs, password strength meter
+│   └── shared/
+│       ├── dark-ui.jsx         # Card, Pill, Money, Delta, AreaChart, Sparkline, KPI, …
+│       └── WakibiMark.jsx      # logo SVG
+├── data/                       # FX rate lookup table, mock fixtures
+├── theme/tokens.js             # design tokens (colors, fonts) for dark and light themes
+├── App.js                      # route definitions + ProtectedLayout + PublicOnlyRoute guards
+└── index.js                    # React root, provider tree
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Routing
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+| Path | Page | Auth required |
+|---|---|---|
+| `/` | LandingPage | No (redirects to `/home` if signed in) |
+| `/login` | AuthPage — login | No |
+| `/signup` | AuthPage — signup | No |
+| `/forgot` | AuthPage — password recovery | No |
+| `/home` | HomePage | Yes |
+| `/markets` | StocksPage | Yes |
+| `/trade` | TradePage | Yes |
+| `/orders` | OrdersPage | Yes |
+| `/wallet` | WalletPage | Yes |
+| `/options` | OptionsPage | Yes |
+| `/bot` | BotPage | Yes |
+| `/profile` | ProfilePage | Yes |
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+`ProtectedLayout` redirects unauthenticated users to `/login`. `PublicOnlyRoute` redirects authenticated users to `/home`. All protected routes are wrapped in `NotificationsProvider`, which establishes the shared WebSocket connection.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Authentication
 
-## Learn More
+JWT token is stored in `localStorage` under the key `wakibi.token`. The Axios client injects it on every request. On a 401 response the client dispatches a `wakibi:auth-expired` event, which `AuthContext` listens to — it clears the token and forces a redirect to `/login` without a full page reload.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Real-Time Data
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+A single WebSocket connection is shared across all pages via `NotificationsContext`. Components subscribe through `useNotificationMessage(callback)` rather than opening their own connections.
 
-### Code Splitting
+**Message types**:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+| Type | Payload | Consumer |
+|---|---|---|
+| `PRICE_UPDATE` | ticker, price, change, change_pct, volume | HomePage, StocksPage, TradePage — live price overlays |
+| `ORDER_UPDATE` | order_id, status | OrdersPage, HomePage — triggers a portfolio refresh |
+| `MARKET_EVENT` | event type, details | Sidebar market status indicator, toast queue |
 
-### Analyzing the Bundle Size
+Price updates are throttled: incoming ticks are stored in a ref and flushed to React state at most every 250 ms.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## Key Features
 
-### Making a Progressive Web App
+- **Portfolio dashboard** — holdings table with P&L, sparklines, area chart, recent transactions
+- **Market browser** — stock search, order book depth, price history chart with ML forecast overlay
+- **Order ticket** — market / limit orders, time-in-force (GTC / DAY / IOC), real-time cost summary with FX conversion
+- **Options trading** — calls/puts chain, Greeks display, PUT validation (must hold underlying)
+- **Multi-currency wallets** — one account per currency, deposit/withdraw modals, cashflow chart
+- **Trading bot** — $49.99/mo subscription, start/stop control, strategy/risk stats
+- **Live notifications** — toast stack (auto-dismiss 6 s, max 5 visible) + persistent bell dropdown
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Design System
 
-### Advanced Configuration
+All reusable primitives live in `src/components/shared/dark-ui.jsx`. The dark theme uses deep purple backgrounds (`#1A0E16`) with sage green (`#59BF8A`) for gains/CTAs and coral red (`#FF6B6B`) for losses/sells. Fonts: **Funnel Display** (headings) and **Funnel Sans** (body). The auth pages use a separate light-theme token set.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## Related Repositories
 
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+| Repo | Description |
+|---|---|
+| `broker-platform-core` | Java/Spring Boot microservices backend |
+| `broker-platform-bot-gateway-spec` | Python algorithmic trading bot |
