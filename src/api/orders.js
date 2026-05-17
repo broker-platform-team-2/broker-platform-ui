@@ -15,3 +15,7 @@ export async function getOrder(orderId) {
 export async function cancelOrder(orderId) {
   await api.delete(`/orders/${orderId}`);
 }
+
+export async function cancelOrderByTransactionId(transactionId) {
+  await api.delete(`/orders/cancel-by-tx/${transactionId}`);
+}
