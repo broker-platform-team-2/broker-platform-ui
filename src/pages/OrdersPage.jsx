@@ -3,7 +3,8 @@ import { D, FONT_HEAD, FONT_BODY } from '../theme/tokens';
 import { AppShell } from '../components/shell/AppShell';
 import { Card, Pill } from '../components/shared/dark-ui';
 import { getMyTransactions } from '../api/transactions';
-import { useNotifications } from '../hooks/useNotifications';
+import { cancelOrder, cancelOrderByTransactionId } from '../api/orders';
+import { useNotificationMessage } from '../context/NotificationsContext';
 
 const STATUS_TONE = {
   PENDING:          { label: 'Pending',          color: D.warn,   bg: 'rgba(251,191,36,0.12)'  },
@@ -41,11 +42,26 @@ function fmtMoney(n, currency = 'USD') {
   return `${currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function OrderDetail({ tx }) {
+function OrderDetail({ tx, onCanceled }) {
   const tone = STATUS_TONE[tx.status] ?? { label: tx.status, color: D.ink50, bg: 'rgba(255,255,255,0.06)' };
   const total = Number(tx.price) * tx.quantity;
   const fee = Number(tx.platformFee ?? 0);
   const isOpen = OPEN_STATUSES.has(tx.status);
+  const [cancelling, setCancelling] = React.useState(false);
+  const [cancelError, setCancelError] = React.useState('');
+
+  async function handleCancel() {
+    setCancelling(true);
+    setCancelError('');
+    try {
+      await cancelOrderByTransactionId(tx.transactionId);
+      onCanceled?.();
+    } catch (e) {
+      setCancelError(e?.response?.data?.message || e?.response?.data?.error || 'Could not cancel order.');
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <>
@@ -85,11 +101,27 @@ function OrderDetail({ tx }) {
         )}
       </div>
 
-      <div style={{ padding: '18px 22px', display: 'flex', gap: 8 }}>
+      <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {isOpen ? (
-          <div style={{ fontSize: 13, color: D.ink50, fontFamily: FONT_BODY }}>
-            Order is active — cancel from the trading screen.
-          </div>
+          <>
+            <button
+              onClick={handleCancel}
+              disabled={cancelling}
+              style={{
+                width: '100%', padding: '11px',
+                background: 'transparent',
+                border: `1px solid ${D.sell}`,
+                color: cancelling ? D.ink50 : D.sell,
+                borderRadius: 9, fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13,
+                cursor: cancelling ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel order'}
+            </button>
+            {cancelError && (
+              <div style={{ fontSize: 12, color: D.sell, textAlign: 'center' }}>{cancelError}</div>
+            )}
+          </>
         ) : (
           <a href="/trade" style={{
             display: 'block', flex: 1, padding: '11px', textAlign: 'center',
@@ -123,14 +155,25 @@ export default function OrdersPage() {
 
   useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
 
-  useNotifications((msg) => {
+  // Poll every 10 s so status updates even when WebSocket is unavailable
+  useEffect(() => {
+    const id = setInterval(fetchTransactions, 10_000);
+    return () => clearInterval(id);
+  }, [fetchTransactions]);
+
+  // Also refresh immediately on any ORDER_UPDATE notification (uses shared WS connection)
+  useNotificationMessage((msg) => {
     if (msg?.type === 'ORDER_UPDATE') fetchTransactions();
   });
 
-  const today = new Date().toDateString();
+  // Compare date parts in UTC to avoid timezone drift between the Docker
+  // server (UTC) and the browser's local clock.
+  const todayUTC = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
   const openCount   = transactions.filter(t => OPEN_STATUSES.has(t.status)).length;
-  const filledToday = transactions.filter(t => t.status === 'FILLED' && new Date(t.date).toDateString() === today);
+  const filledToday = transactions.filter(t =>
+    t.status === 'FILLED' && t.date && String(t.date).slice(0, 10) === todayUTC
+  );
   const totalFilled = filledToday.reduce((s, t) => s + Number(t.price) * t.quantity, 0);
   const totalFees   = transactions.reduce((s, t) => s + Number(t.platformFee ?? 0), 0);
 
@@ -250,7 +293,7 @@ export default function OrdersPage() {
 
         <Card padding={0}>
           {selectedTx
-            ? <OrderDetail tx={selectedTx}/>
+            ? <OrderDetail tx={selectedTx} onCanceled={fetchTransactions}/>
             : <div style={{ padding: 32, color: D.ink50, fontSize: 13, textAlign: 'center' }}>Select an order to see details.</div>
           }
         </Card>

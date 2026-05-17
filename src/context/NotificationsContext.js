@@ -4,6 +4,10 @@ import { getMarketStatus } from '../api/market';
 
 const NotificationsContext = createContext(null);
 
+// Separate context for raw message subscribers so components can hook in
+// without opening their own WebSocket connections.
+const MessageSubscribersContext = createContext(null);
+
 /**
  * Build a normalized "live" snapshot from a PRICE_UPDATE payload.
  * Source schema (price-simulation):
@@ -26,6 +30,10 @@ function snapshotFromPriceUpdate(payload) {
 export function NotificationsProvider({ children }) {
   const [marketStatus, setMarketStatus] = useState(null);
   const [notifications, setNotifications] = useState([]);
+
+  // Registry of callbacks for components that want raw message delivery
+  // without opening a second WebSocket connection.
+  const subscribersRef = useRef(new Set());
 
   // Live prices keyed by ticker. We use a ref for high-frequency writes and
   // mirror to state via a throttled tick so React re-renders are bounded
@@ -69,19 +77,46 @@ export function NotificationsProvider({ children }) {
     if (['ORDER_UPDATE', 'MARKET_EVENT'].includes(msg.type)) {
       setNotifications(prev => [...prev.slice(-49), msg]);
     }
+    // Forward to any registered page-level subscribers
+    subscribersRef.current.forEach(fn => { try { fn(msg); } catch { /* noop */ } });
   }, []);
 
   useNotifications(handleMessage);
 
   return (
     <NotificationsContext.Provider value={{ marketStatus, notifications, setNotifications, livePrices }}>
-      {children}
+      <MessageSubscribersContext.Provider value={subscribersRef}>
+        {children}
+      </MessageSubscribersContext.Provider>
     </NotificationsContext.Provider>
   );
 }
 
 export function useNotificationsContext() {
   return useContext(NotificationsContext);
+}
+
+/**
+ * Subscribe to raw WebSocket messages from the single shared connection
+ * managed by NotificationsProvider. Use this instead of calling
+ * useNotifications() directly in page components — it avoids opening a
+ * second WebSocket connection for every subscriber.
+ *
+ * @param {function} onMessage  Called with each parsed message object.
+ *                              Pass a stable reference (useCallback) or
+ *                              use a ref internally — the hook handles that.
+ */
+export function useNotificationMessage(onMessage) {
+  const subscribersRef = useContext(MessageSubscribersContext);
+  const handlerRef = useRef(onMessage);
+  handlerRef.current = onMessage;
+
+  useEffect(() => {
+    if (!subscribersRef) return; // context not mounted yet
+    const fn = (msg) => handlerRef.current?.(msg);
+    subscribersRef.current.add(fn);
+    return () => { subscribersRef.current.delete(fn); };
+  }, [subscribersRef]);
 }
 
 /**

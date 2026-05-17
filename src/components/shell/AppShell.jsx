@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { D, FONT_HEAD, FONT_BODY } from '../../theme/tokens';
 import { WakibiMark } from '../shared/WakibiMark';
 import { useAuth } from '../../context/AuthContext';
 import { useAccount } from '../../context/AccountContext';
-import { useNotificationsContext } from '../../context/NotificationsContext';
+import { useNotificationsContext, useNotificationMessage } from '../../context/NotificationsContext';
 
 const NAV = [
   { id: 'home',   label: 'Home',    icon: 'home',   path: '/home' },
   { id: 'stocks', label: 'Markets', icon: 'chart',  path: '/markets' },
   { id: 'trade',  label: 'Trade',   icon: 'arrows', path: '/trade' },
   { id: 'orders', label: 'Orders',  icon: 'list',   path: '/orders' },
-  { id: 'wallet', label: 'Wallet',  icon: 'wallet', path: '/wallet' },
+  { id: 'wallet',   label: 'Wallet',  icon: 'wallet',   path: '/wallet' },
+  { id: 'options',  label: 'Options', icon: 'options',  path: '/options' },
+  { id: 'bot',      label: 'Bot',     icon: 'bot',      path: '/bot' },
 ];
 
 
@@ -21,8 +23,10 @@ const NavIcon = ({ name }) => {
   if (name === 'chart')  return <svg {...p}><path d="M3 14l4-4 3 3 5-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 16h12" stroke="currentColor" strokeWidth="1.5"/></svg>;
   if (name === 'arrows') return <svg {...p}><path d="M4 6h10l-3-3M14 12H4l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
   if (name === 'list')   return <svg {...p}><path d="M5 5h10M5 9h10M5 13h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
-  if (name === 'wallet') return <svg {...p}><rect x="2.5" y="5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 8h13" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="11" r="0.8" fill="currentColor"/></svg>;
-  if (name === 'search') return <svg {...p}><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.5"/><path d="M12 12l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (name === 'wallet')  return <svg {...p}><rect x="2.5" y="5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 8h13" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="11" r="0.8" fill="currentColor"/></svg>;
+  if (name === 'options') return <svg {...p}><rect x="3" y="3" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5"/><rect x="10" y="3" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5"/><rect x="3" y="10" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M10.5 12.5h4M12.5 10.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (name === 'bot')     return <svg {...p}><rect x="3" y="5" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 9h.5M10.5 9h.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M9 5V3M6 14l-1 1M12 14l1 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (name === 'search')  return <svg {...p}><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.5"/><path d="M12 12l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
   if (name === 'bell')   return <svg {...p}><path d="M5 8a4 4 0 1 1 8 0c0 3 1 4 1 4H4s1-1 1-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7.5 14a1.5 1.5 0 0 0 3 0" stroke="currentColor" strokeWidth="1.5"/></svg>;
   return null;
 };
@@ -118,9 +122,18 @@ function noteText(n) {
     return `Order ${id ? '#' + id : ''} → ${status}`;
   }
   if (n.type === 'MARKET_EVENT') {
-    const headline = p.headline ?? p.message ?? p.event ?? '';
-    const kind = p.event_type ?? p.type ?? '';
-    return headline || kind || 'Market event';
+    // The exchange sends MARKET_EVENT with empty fields as a signal only;
+    // actual status is fetched via REST. Show whatever non-empty data exists.
+    const headline = p.headline ?? p.message ?? p.description ?? p.event ?? p.text ?? '';
+    const kind = p.event_type ?? p.eventType ?? p.status ?? p.kind ?? '';
+    if (headline && kind) return `${kind}: ${headline}`;
+    if (headline) return headline;
+    if (kind) return kind;
+    const vals = Object.entries(p)
+      .filter(([, v]) => typeof v === 'string' && v.trim())
+      .map(([, v]) => v)
+      .join(' · ');
+    return vals || 'Market status changed — check sidebar';
   }
   if (n.type === 'PRICE_UPDATE') {
     const ticker = p.ticker ?? p.symbol ?? '';
@@ -128,6 +141,94 @@ function noteText(n) {
     return `${ticker}${price ? ' @ $' + Number(price).toFixed(2) : ''}`;
   }
   return JSON.stringify(p).slice(0, 80);
+}
+
+// Inject slide-in animation once
+if (typeof document !== 'undefined' && !document.getElementById('toast-keyframes')) {
+  const s = document.createElement('style');
+  s.id = 'toast-keyframes';
+  s.textContent = '@keyframes fadeSlideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }';
+  document.head.appendChild(s);
+}
+
+// ── Toast notifications ────────────────────────────────────────────────────────
+const TOAST_DURATION = 6000; // ms before auto-dismiss
+
+function ToastStack() {
+  const [toasts, setToasts] = useState([]);
+  const timers = useRef({});
+
+  // Keep a live ref to marketStatus so the delayed MARKET_EVENT toast can read
+  // the freshly-fetched value (the context updates it ~500 ms after the event)
+  const { marketStatus } = useNotificationsContext() ?? {};
+  const marketStatusRef = useRef(marketStatus);
+  useEffect(() => { marketStatusRef.current = marketStatus; }, [marketStatus]);
+
+  const dismiss = (id) => {
+    clearTimeout(timers.current[id]);
+    delete timers.current[id];
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  useNotificationMessage((msg) => {
+    if (!['ORDER_UPDATE', 'MARKET_EVENT'].includes(msg?.type)) return;
+    const id = Date.now() + Math.random();
+
+    if (msg.type === 'MARKET_EVENT') {
+      // Wait 800 ms so getMarketStatus() in NotificationsContext has time to resolve
+      setTimeout(() => {
+        const ms = marketStatusRef.current;
+        const text = ms
+          ? `Market is now ${ms.isOpen ? 'OPEN 🟢' : 'CLOSED 🔴'}`
+          : 'Market status changed';
+        const toast = { id, type: 'MARKET_EVENT', text, color: noteColor('MARKET_EVENT') };
+        setToasts(prev => [...prev.slice(-4), toast]);
+        timers.current[id] = setTimeout(() => dismiss(id), TOAST_DURATION);
+      }, 800);
+    } else {
+      const toast = { id, type: msg.type, text: noteText(msg), color: noteColor(msg.type) };
+      setToasts(prev => [...prev.slice(-4), toast]);
+      timers.current[id] = setTimeout(() => dismiss(id), TOAST_DURATION);
+    }
+  });
+
+  // Clean up timers on unmount
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
+
+  if (toasts.length === 0) return null;
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
+      display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end',
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          minWidth: 260, maxWidth: 360,
+          background: D.surface2,
+          border: `1px solid ${t.color}44`,
+          borderLeft: `4px solid ${t.color}`,
+          borderRadius: 12,
+          padding: '12px 14px',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          animation: 'fadeSlideIn 0.2s ease',
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 11, color: t.color, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+              {t.type.replace(/_/g, ' ')}
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: D.ink, lineHeight: 1.4 }}>
+              {t.text}
+            </div>
+          </div>
+          <button onClick={() => dismiss(t.id)} style={{
+            background: 'transparent', border: 'none', color: D.ink50,
+            cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px', flexShrink: 0,
+          }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const SYMBOLS = { EUR: '€', RON: 'lei ', USD: '$', GBP: '£', CHF: 'CHF ' };
@@ -275,6 +376,7 @@ export const AppShell = ({ title, subtitle, children }) => {
           {children}
         </div>
       </div>
+      <ToastStack />
     </div>
   );
 };
